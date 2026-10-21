@@ -15,6 +15,7 @@ Screen: scores only the tier's models into its own table, no probes, log and che
 import argparse
 import fnmatch
 import json
+import os
 import subprocess
 import sys
 import time
@@ -102,6 +103,8 @@ def main():
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
     ap.add_argument("--tier", choices=["A", "B", "all"], default="all")
     a = ap.parse_args()
+    if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
+        sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
     from run_pilot import FINAL_PROBES, score_args, tag      # same probe list and scorer scope as the orchestrator
     global LOG
     t = tag(a.plan, a.tier)

@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if os.environ.get("SCREEN_TIER"):
     from run_pilot import screen_models, tag
     t = tag("screen", os.environ["SCREEN_TIER"])
-    PATTERNS = ["data/scenes/**", "data/renders/**", "data/real/**", f"data/logs/*{t}*", f"results/*{t}*"] +         [f"runs/*/{m}/**" for m in screen_models(os.environ["SCREEN_TIER"])]
+    PATTERNS = ["data/scenes/**", "data/renders/**", "data/real/**", f"data/logs/*{t}*", f"results/*{t}*"] + \
+        [f"runs/*/{m}/**" for m in screen_models(os.environ["SCREEN_TIER"])]
 
 
 def repo_id():

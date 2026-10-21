@@ -54,14 +54,14 @@ def main(root="data"):
         f = Path(root) / "physics_iq" / f"{stem}.mp4"
         if not f.exists():
             urlretrieve(PIQ_URL.format(stem), f)
-        manifest.append(dict(id=f"piq_{name}", source="physics-iq", video=str(f), wh=[3840, 2160],
+        manifest.append(dict(id=f"piq_{name}", source="physics-iq", video=f.as_posix(), wh=[3840, 2160],
                              input_end_s=PIQ_INPUT_END_S, box=box, caption=cap))
     qdir = Path(root) / "quantiphy_val"
     if not (qdir / "validation_dataset.csv").exists():
         from huggingface_hub import snapshot_download
         snapshot_download("PaulineLi/QuantiPhy-validation", repo_type="dataset", local_dir=qdir)
     for clip, box in QVAL.items():
-        manifest.append(dict(id=f"qval_{clip}", source="quantiphy-val", video=str(qdir / "validation_videos" / f"{clip}.mp4"),
+        manifest.append(dict(id=f"qval_{clip}", source="quantiphy-val", video=(qdir / "validation_videos" / f"{clip}.mp4").as_posix(),
                              wh=[854, 480], start_s=0.0, box=box, caption=QVAL_CAPTIONS[clip]))
     (real / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (real / "qval_questions.json").write_text(json.dumps(

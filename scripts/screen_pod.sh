@@ -14,8 +14,10 @@ export SCREEN_TIER=$TIER
 S=_screen_$TIER
 mkdir -p data/logs
 bash scripts/setup_runpod.sh > "data/logs/setup$S.log" 2>&1 || { echo "setup failed"; exit 1; }
-python -c "from cosmos_guardrail import CosmosSafetyChecker; CosmosSafetyChecker()" > "data/logs/guardrail$S.log" 2>&1 \
-  || { echo "guardrail failed (see data/logs/guardrail$S.log)"; exit 1; }
+if [ "$TIER" != B ]; then                        # only Cosmos 3 Nano (tier A) uses the guardrail
+  python -c "from cosmos_guardrail import CosmosSafetyChecker; CosmosSafetyChecker()" > "data/logs/guardrail$S.log" 2>&1 \
+    || { echo "guardrail failed (see data/logs/guardrail$S.log)"; exit 1; }
+fi
 EXT=$(python -c "import sys; sys.path.insert(0, 'scripts'); from run_pilot import screen_ext; print(*screen_ext('$TIER'))")
 if [ -n "$EXT" ]; then
   bash scripts/ext/setup_ext.sh $EXT > "data/logs/setup_ext$S.log" 2>&1 || { echo "external setup failed"; exit 1; }

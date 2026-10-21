@@ -145,6 +145,8 @@ def main():
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
     ap.add_argument("--tier", choices=["A", "B", "all"], default="all", help="screen: A, B or both")
     a = ap.parse_args()
+    if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
+        sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
     global TAG
     TAG = tag(a.plan, a.tier)
     plan = PLAN if a.plan == "main" else screen_plan(a.tier)
