@@ -40,7 +40,7 @@ def gen(model, exp, limit, seeds, ext=None):
         d = f"{os.environ.get('EXT_ROOT', '/workspace/ext')}/{ext}"
         runner = [f"{d}/venv/bin/python", f"scripts/ext/run_{ext}.py", "--repo", f"{d}/repo", "--exp", exp,
                   "--model", model]
-        c = ["bash", "-c", f"{shlex.join(c + ['--export-jobs'])} && {shlex.join(runner)}"]
+        c = ["bash", "-c", f"{shlex.join(c + ['--export-jobs'])} && exec {shlex.join(runner)}"]
     return dict(name=f"{exp}:{model}", kind="gen", model=model, clips=n, out=[f"runs/{exp}/{model}"], cmd=c)
 
 

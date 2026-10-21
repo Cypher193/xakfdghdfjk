@@ -243,12 +243,13 @@ class Generator:
         finally:
             cap.detach()
         wall = time.time() - t0
+        # text-only may differ (Helios trims to 4k+1 frames), so meta records len(video)
         assert not cond_frames or len(video) == c["num_frames"], f"{self.name}: {len(video)} frames != num_frames"
         video = _u8(video)
         res = dict(video=video, final_latent=cap.final_latent, acts=cap.arrays() if capture else {},
                    meta=dict(model=self.name, repo=c["repo"], revision=c.get("revision"), seed=seed, prompt=prompt,
                              cond_frames=len(cond_frames), cond_seconds=len(cond_frames) / c["fps"], fps=c["fps"],
-                             height=c["height"], width=c["width"], num_frames=c["num_frames"], steps=c["steps"],
+                             height=c["height"], width=c["width"], num_frames=len(video), steps=c["steps"],
                              guidance=c["guidance"], wall_s=round(wall, 1), token_grid=list(grid)))
         if cond_frames and capture:
             res["vae"] = self.vae_features(cond_frames, obj_box, in_wh)

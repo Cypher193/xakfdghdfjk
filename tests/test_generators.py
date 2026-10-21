@@ -26,6 +26,7 @@ for name, build in {**tiny.BUILDERS, **tiny.SCREEN_BUILDERS}.items():
     assert (f"{group}/obj" in r["acts"]) == (cfg.get("obj_tokens") is not False), name
     t2 = gen.generate([], "a ball", 0)                       # text only (B2-nl)
     assert t2["video"].ndim == 4 and t2["video"].shape[1:] == r["video"].shape[1:], name
+    assert t2["meta"]["num_frames"] == len(t2["video"]), name
 
 # Blocks that return (text, video) or (video, audio) tuples: the pooled stream is the video one.
 for name, stream, call_of_step in (("cosmos3_nano", lambda o: o[1], lambda s: 2 * s),     # separate cond/uncond calls
