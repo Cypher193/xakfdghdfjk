@@ -176,6 +176,7 @@ models:
   helios:
     repo: BestWishYsh/Helios-Base
     pipeline: HeliosPipeline
+    ignore: ["transformer_init/*"]   # 57 GB initial weights, not used by the pipeline
     input: helios_v2v
     cpu_offload: true
     fps: 24                   # every example exports at 24 fps (training fps not stated)
