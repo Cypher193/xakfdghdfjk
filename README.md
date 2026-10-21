@@ -13,8 +13,9 @@ commit them before any pilot run and do not edit thresholds after seeing data.
 | `configs/gates.yaml` | go/no-go thresholds (pre-registered) |
 | `pilot/scenes.py` | scene specs with exact analytic ground truth (constant velocity, bounces, two-ball ratios, gravity switches) |
 | `pilot/render.py` | Blender renders of the specs (Poly Haven HDRIs and textures) |
-| `pilot/models.py` | Cosmos-Predict2.5-2B, LTX-Video-2B (0.9.5), Wan2.1-VACE-1.3B wrappers with activation capture |
-| `pilot/generate.py` | one experiment × one model → `runs/{exp}/{model}/{scene}_s{seed}/` |
+| `pilot/models.py` | diffusers generators with activation capture; per-model input adapters (`INPUTS`, cfg `input:`) |
+| `pilot/generate.py` | one experiment × one model → `runs/{exp}/{model}/{scene}_s{seed}/`; `--export-jobs` for external repos |
+| `pilot/jobs.py`, `scripts/ext/` | MAGI-1 and Self-Forcing: job files, runners in their own venvs, `setup_ext.sh` |
 | `pilot/track.py` | SAM2 tracking, metre conversion, kinematic fits; P0 validation on renders and QuantiPhy val |
 | `pilot/probe.py` | ridge probes, scene-split CV, VAE / control-task / mean baselines |
 | `pilot/metrics.py` | symmetric MRA, original MRA, SILog, γ, residual, CRPS, bootstrap, Holm (`python -m pilot.metrics` self-check) |
@@ -55,7 +56,20 @@ skipping steps that no longer fit, while `pilot.score` tracks and scores clips a
 `data/logs/pilot.log`, `data/logs/budget.json`; results: `results/show.csv`, `results/p6_*.csv`, `results/p8_*.csv`.
 
 CPU tests on tiny random-weight pipelines (no GPU): `python -m tests.test_generators`, `tests.test_steer`,
-`tests.test_invert`, `tests.test_likelihood`; metrics: `python -m pilot.metrics`.
+`tests.test_invert`, `tests.test_likelihood`, `tests.test_jobs`; metrics: `python -m pilot.metrics`.
+
+## Generator screen
+
+Seven candidates, seed 0, show-only for MAGI-1 and Self-Forcing (`capture: false` in meta). Tier A (main-slot
+candidates: selfforcing, magi45, skyreels13, cosmos3_nano): B1 x 8, B5 x 3, real x 2. Tier B (scale arms: ltx2,
+helios, skyreels14): B1 x 4, B5 x 3. Each tier runs on its own pod (or `all` on one):
+
+    setsid nohup bash scripts/screen_pod.sh A 10 > /workspace/screen.out 2>&1 < /dev/null &      # tier, budget (h)
+
+Setup, guardrail check, external venvs if the tier needs them, `run_pilot.py --plan screen --tier A`, then
+`finalize.py` pushes, verifies on HF and stops the pod. Logs, budget and table carry `_screen_{tier}`
+(`data/logs/pilot_screen_A.log`, `results/show_screen_A.csv`). Every saved clip starts with the input window
+(frame k is k/fps after the first input frame), whatever the model returns.
 
 ## Design notes found while building
 

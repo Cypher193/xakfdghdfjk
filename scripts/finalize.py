@@ -1,6 +1,7 @@
 """Deadline guard for the pilot pod: stop work, upload everything to HF, verify, then stop the pod.
 
     python scripts/finalize.py --stop-at 2026-10-18T00:40Z --hard-at 2026-10-18T01:25Z
+    python scripts/finalize.py --stop-at ... --hard-at ... --plan screen --tier A      # screen pod (screen_pod.sh)
 
 1. Waits until --stop-at, or until the pilot finishes by itself, whichever is first.
 2. Stops the orchestrator and every worker (generation, scoring, probes, timing).
@@ -9,6 +10,7 @@
 5. Stops the pod: ends /start.sh's `sleep infinity`, so the container exits and GPU billing stops.
    The pod then shows as Exited; deleting it is done with the account key (laptop side).
 Runs even if verification is incomplete at --hard-at: the deadline wins, the check file says what is missing.
+Screen: scores only the tier's models into its own table, no probes, log and check files suffixed _screen_{tier}.
 """
 import argparse
 import fnmatch
@@ -27,7 +29,7 @@ PY = sys.executable
 WORKERS = ["restart2.sh", "restart.sh", "run_pilot.py", "pilot.generate", "pilot.steer", "pilot.invert",
            "pilot.likelihood", "pilot.score", "pilot.probe", "time_extra.sh", "scripts/ext/",
            "sync.py push --every"]                                   # the background uploader: finalize uploads now
-LOG = ROOT / "data/logs/finalize.log"
+LOG = ROOT / "data/logs/finalize.log"                               # main() adds the screen suffix
 
 
 def log(msg):
@@ -97,7 +99,13 @@ def main():
     ap.add_argument("--stop-at", required=True, help="UTC, e.g. 2026-10-18T00:40Z")
     ap.add_argument("--hard-at", required=True, help="UTC; the pod is stopped by then whatever happens")
     ap.add_argument("--no-stop-pod", action="store_true", help="testing: do everything except stopping the pod")
+    ap.add_argument("--plan", choices=["main", "screen"], default="main")
+    ap.add_argument("--tier", choices=["A", "B", "all"], default="all")
     a = ap.parse_args()
+    from run_pilot import FINAL_PROBES, score_args, tag      # same probe list and scorer scope as the orchestrator
+    global LOG
+    t = tag(a.plan, a.tier)
+    LOG = ROOT / f"data/logs/finalize{t}.log"
     stop, hard = ts(a.stop_at), ts(a.hard_at)
     log(f"armed: stop work at {a.stop_at}, pod stopped by {a.hard_at}")
     while time.time() < stop and (running("run_pilot.py") or running("restart2.sh")):
@@ -107,11 +115,9 @@ def main():
         subprocess.run(["pkill", "-f", w])
     time.sleep(10)
     run([PY, "scripts/sync.py", "push"], min(900, left(hard) - 300), "upload 1")
-    run([PY, "-m", "pilot.score"], min(900, left(hard) - 900), "final scoring pass")
+    run([PY, "-m", "pilot.score", *score_args(a.plan, a.tier)], min(900, left(hard) - 900), "final scoring pass")
     run([PY, "scripts/sync.py", "push"], min(600, left(hard) - 300), "upload 2")
-    sys.path.insert(0, str(ROOT))
-    from run_pilot import FINAL_PROBES                       # same probe list as the orchestrator
-    for model, exps, target in FINAL_PROBES:
+    for model, exps, target in FINAL_PROBES if a.plan == "main" else []:
         run([PY, "-m", "pilot.probe", "--model", model, "--exps", *exps, "--target", target],
             min(300, left(hard) - 900), f"probe {model} {target}")
     check = {}
@@ -126,10 +132,10 @@ def main():
             break
         time.sleep(30)
     check.update(verified=check.get("missing") == 0, at=f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}")
-    (ROOT / "data/logs/final_check.json").write_text(json.dumps(check, indent=1))
+    (ROOT / f"data/logs/final_check{t}.json").write_text(json.dumps(check, indent=1))
     try:                                                      # the check file itself, then the log, last
         from huggingface_hub import HfApi
-        for f in ("data/logs/final_check.json", "data/logs/finalize.log"):
+        for f in (f"data/logs/final_check{t}.json", f"data/logs/finalize{t}.log"):
             HfApi().upload_file(path_or_fileobj=str(ROOT / f), path_in_repo=f, repo_id=sync.repo_id(),
                                 repo_type="dataset", commit_message="final check")
     except Exception as e:

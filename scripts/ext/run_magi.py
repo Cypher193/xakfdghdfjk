@@ -1,7 +1,7 @@
 """MAGI-1 4.5B-distill video continuation for exported jobs (pilot/jobs.py). Runs in the MAGI-1 venv:
 
     /workspace/ext/magi/venv/bin/python scripts/ext/run_magi.py --repo /workspace/ext/magi/repo \
-        --ckpt /workspace/ext/magi/ckpt --exp b1 --model magi45
+        --exp b1 --model magi45
 
 Uses the building blocks of the repo's ComfyUI node (comfyui/comfy_nodes.py) so the model loads once and the
 prefix comes from memory. MAGI-1 returns only the new frames (video_generate.py: chunks inside the prefix are not
@@ -19,12 +19,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--repo", required=True)
-ap.add_argument("--ckpt", required=True, help="local_dir holding ckpt/{magi,t5,vae}")
+ap.add_argument("--ckpt", help="local_dir holding ckpt/{magi,t5,vae}; default: <repo>/../ckpt (setup_ext.sh)")
 ap.add_argument("--runs", default=str(ROOT / "runs"))
 ap.add_argument("--exp", required=True)
 ap.add_argument("--model", required=True)
 a = ap.parse_args()
 repo = Path(a.repo).resolve()
+ckpt = Path(a.ckpt) if a.ckpt else repo.parent / "ckpt"
 for k, v in {"MASTER_ADDR": "localhost", "MASTER_PORT": "6009", "RANK": "0", "WORLD_SIZE": "1",
              "PAD_HQ": "1", "PAD_DURATION": "1", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
              "SPECIAL_TOKEN_PATH": str(repo / "example/assets/special_tokens.npz")}.items():   # run.sh settings
@@ -70,8 +71,8 @@ def continue_video(cfg, dit, frames, job):
 def main():
     cfg = MagiConfig.from_json(str(repo / "example/4.5B/4.5B_distill_config.json"))
     rc = cfg.runtime_config
-    rc.load = str(Path(a.ckpt) / "ckpt/magi/4.5B_distill")
-    rc.t5_pretrained, rc.vae_pretrained = str(Path(a.ckpt) / "ckpt/t5"), str(Path(a.ckpt) / "ckpt/vae")
+    rc.load = str(ckpt / "ckpt/magi/4.5B_distill")
+    rc.t5_pretrained, rc.vae_pretrained = str(ckpt / "ckpt/t5"), str(ckpt / "ckpt/vae")
     dist_init(cfg)
     dit = get_dit(cfg)
     for d in jobs.pending(a.runs, a.exp, a.model):

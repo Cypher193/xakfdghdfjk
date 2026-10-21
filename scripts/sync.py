@@ -6,6 +6,8 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
+Screen pods (SCREEN_TIER=A|B|all, set by scripts/screen_pod.sh) pull the inputs plus their own runs, logs and table
+and push only those: two pods share the repo, and a pod must never re-upload a stale pulled copy of the other's files.
 """
 import argparse
 import os
@@ -17,6 +19,10 @@ from huggingface_hub import HfApi, snapshot_download, whoami
 PATTERNS = ["data/scenes/**", "data/renders/**", "data/logs/**", "data/real/**", "runs/**", "results/**"]
 IGNORE = ["**/*.partial.mp4", "**/*.tmp"]      # clips still being written
 ROOT = Path(__file__).resolve().parents[1]
+if os.environ.get("SCREEN_TIER"):
+    from run_pilot import screen_models, tag
+    t = tag("screen", os.environ["SCREEN_TIER"])
+    PATTERNS = ["data/scenes/**", "data/renders/**", "data/real/**", f"data/logs/*{t}*", f"results/*{t}*"] +         [f"runs/*/{m}/**" for m in screen_models(os.environ["SCREEN_TIER"])]
 
 
 def repo_id():

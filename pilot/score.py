@@ -2,6 +2,7 @@
 
     python -m pilot.score                 # all unscored runs, then results/show.csv
     python -m pilot.score --loop 300      # keep scoring new clips every 5 min (runs next to generation)
+    python -m pilot.score --models ltx2 helios --table results/show_screen_B.csv   # one screen pod's models only
 
 Per clip -> score.json next to video.mp4. Rendered scenes are tracked from the ground-truth box on frame 0;
 text-only clips (B2-nl) have no input frames, so the object is found on frame 0 by its colour; real clips use
@@ -90,12 +91,12 @@ def find_spec(scene, manifest):
     return "real", manifest.get(scene)
 
 
-def score_all(runs="runs"):
+def score_all(runs="runs", models=None):
     manifest = {e["id"]: e for e in json.loads(Path("data/real/manifest.json").read_text(encoding="utf-8"))}
     done = 0
     for v in sorted(Path(runs).glob("*/*/*/video.mp4")):
         d = v.parent
-        if (d / "score.json").exists() or not (d / "meta.json").exists() or d.parts[-3] == "timing":
+        if (d / "score.json").exists() or not (d / "meta.json").exists() or d.parts[-3] == "timing"                 or (models and d.parts[-2] not in models):
             continue
         meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         kind, spec = find_spec(meta["scene"], manifest)
@@ -110,9 +111,11 @@ def score_all(runs="runs"):
     return done
 
 
-def table(runs="runs", out="results/show.csv"):
+def table(runs="runs", out="results/show.csv", models=None):
     rows = []
     for s in sorted(Path(runs).glob("*/*/*/score.json")):
+        if models and s.parts[-3] not in models:
+            continue
         meta = json.loads((s.parent / "meta.json").read_text(encoding="utf-8"))
         rows.append(dict(exp=s.parts[-4], model=s.parts[-3], scene=meta["scene"], seed=meta["seed"],
                          alpha=meta.get("alpha"), wall_s=meta.get("wall_s"))
@@ -128,10 +131,12 @@ if __name__ == "__main__":
     ap.add_argument("--runs", default="runs")
     ap.add_argument("--loop", type=int, default=0, help="seconds between passes; 0 = one pass")
     ap.add_argument("--until-file", default="", help="loop exits after a pass once this file exists")
+    ap.add_argument("--models", nargs="*", help="only these model run dirs (default: all)")
+    ap.add_argument("--table", default="results/show.csv")
     a = ap.parse_args()
     while True:
-        score_all(a.runs)
-        df = table(a.runs)
+        score_all(a.runs, a.models)
+        df = table(a.runs, a.table, a.models)
         print(time.strftime("%H:%M:%S"), f"scored clips: {len(df)}", flush=True)
         if not a.loop or (a.until_file and Path(a.until_file).exists()):
             break
