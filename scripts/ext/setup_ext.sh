@@ -8,6 +8,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 EXT=${EXT_ROOT:-/workspace/ext}
 TORCH_PINS="torch==2.7.1 torchvision==0.22.1"
+# Triton compiles a C helper against the venv's base Python (system 3.10): it needs Python.h
+[ -f /usr/include/python3.10/Python.h ] || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3.10-dev; }
 FA=https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3
 
 clone() {  # url sha dir
