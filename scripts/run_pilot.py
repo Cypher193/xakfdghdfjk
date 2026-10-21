@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import statistics
 import subprocess
 import sys
@@ -84,11 +85,21 @@ def screen_ext(tier):
     return sorted({models[m]["ext"] for m in screen_models(tier) if models[m].get("ext")})
 
 
-def screen_plan(tier):
-    models = yaml.safe_load(open("configs/pilot.yaml"))["models"]
+def free_hf(repo):
+    """Delete a model from the HF cache. huggingface_hub 1.x keeps large files in a shared hub/blobs store that the
+    repo folder only links to, so blobs no remaining link points at are deleted too."""
     hub = Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub"
+    shutil.rmtree(hub / f"models--{repo.replace('/', '--')}", ignore_errors=True)
+    keep = {p.resolve() for p in hub.rglob("*") if p.is_symlink()}
+    for b in (hub / "blobs").rglob("*") if (hub / "blobs").is_dir() else []:
+        if b.is_file() and not b.name.startswith(".") and b.resolve() not in keep:
+            b.unlink()
+
+
+def screen_plan(tier, skip=()):
+    models = yaml.safe_load(open("configs/pilot.yaml"))["models"]
     plan = []
-    for m in screen_models(tier):
+    for m in [m for m in screen_models(tier) if m not in skip]:
         ext = models[m].get("ext")
         if m == "helios":                            # its 1.375 s window is longer than the 1.125 s gravity inputs
             render = "for g in 0.5 1.0 2.0; do $BPY_PYTHON -m pilot.render data/scenes/kgrav/kgrav_00_g$g.json " \
@@ -97,8 +108,8 @@ def screen_plan(tier):
                                                         f"sys.exit(subprocess.call(['bash', '-c', {render!r}]))"], 600))
         plan += [gen(m, e, n, [0], ext) for e, n in SCREEN_EXPS["A" if m in TIERS["A"] else "B"]]
         if not ext:                                  # keep the container disk under 300 GB: one model cached at a time
-            cache = str(hub / f"models--{models[m]['repo'].replace('/', '--')}")
-            plan.append(cmd(f"free:{m}", ["-c", f"import shutil; shutil.rmtree({cache!r}, ignore_errors=True)"], 10))
+            plan.append(cmd(f"free:{m}", ["-c", f"import sys; sys.path.insert(0, 'scripts'); "
+                                                f"from run_pilot import free_hf; free_hf({models[m]['repo']!r})"], 10))
     return plan
 
 
@@ -149,12 +160,13 @@ def main():
     ap.add_argument("--reserve-h", type=float, default=0.4, help="kept for final scoring, probes and push")
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
     ap.add_argument("--tier", choices=["A", "B", "all"], default="all", help="screen: A, B or both")
+    ap.add_argument("--skip", nargs="*", default=[], help="screen: models to leave out")
     a = ap.parse_args()
     if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
         sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
     global TAG
     TAG = tag(a.plan, a.tier)
-    plan = PLAN if a.plan == "main" else screen_plan(a.tier)
+    plan = PLAN if a.plan == "main" else screen_plan(a.tier, a.skip)
     Path("data/logs").mkdir(parents=True, exist_ok=True)
     start_file = Path(f"data/logs/pilot_start{TAG}")
     if not start_file.exists():

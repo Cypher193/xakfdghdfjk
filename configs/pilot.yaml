@@ -158,7 +158,8 @@ models:
     repo: Lightricks/LTX-2
     pipeline: LTX2ConditionPipeline
     input: ltx2_conditions
-    ignore: ["text_encoder/diffusion_pytorch_model*"]   # duplicate 52 GB copy of the Gemma 3 text encoder
+    ignore: ["text_encoder/diffusion_pytorch_model*", "ltx-2-*"]   # duplicate 52 GB Gemma 3 copy; root single-file
+                              # checkpoints (~170 GB). bf16 needs > 50 GB host RAM with CPU offload: not on a 48 GB pod
     cpu_offload: true
     fps: 24
     num_frames: 121           # 8k+1, 5.04 s
