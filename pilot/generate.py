@@ -2,8 +2,10 @@
 
     python -m pilot.generate --model vace13 --exp b1
     python -m pilot.generate --model ltx2b --exp b2nl --limit 2      # smoke test
+    python -m pilot.generate --model magi45 --exp b1 --export-jobs   # external repo: job files for its runner
 
 Writes runs/{exp}/{model}/{scene}_s{seed}/ video.mp4, meta.json, acts.npz, latent.pt. Existing runs are skipped.
+--export-jobs writes job.json + input.npz there instead (pilot/jobs.py); scripts/ext/run_*.py generate from them.
 """
 import argparse
 import json
@@ -16,7 +18,8 @@ import numpy as np
 import torch
 import yaml
 
-from pilot.models import Generator
+from pilot import jobs
+from pilot.models import Generator, _pil
 from pilot.scenes import object_track, project
 
 
@@ -80,6 +83,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--no-capture", action="store_true", help="timing runs")
     ap.add_argument("--res", help="override resolution as HEIGHTxWIDTH, e.g. 480x832; runs go to {model}_{H}p")
+    ap.add_argument("--export-jobs", action="store_true", help="write job.json + input.npz for an external runner")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
     mcfg, e = dict(cfg["models"][a.model]), cfg["experiments"][a.exp]
@@ -89,7 +93,9 @@ def main():
         run_name = f"{a.model}_{mcfg['height']}p"
     seeds = a.seeds or e.get("seeds") or cfg["seeds"]
     scenes = scene_list(cfg, a.exp)[: a.limit or None]
-    gen = Generator(a.model, mcfg, cfg)
+    if mcfg.get("ext") and not a.export_jobs:
+        raise SystemExit(f"{a.model} runs outside diffusers: --export-jobs, then scripts/ext/run_{mcfg['ext']}.py")
+    gen = None if a.export_jobs else Generator(a.model, mcfg, cfg)
     sha = commit()
     for spec in scenes:
         if e["scenes"] == "real":
@@ -111,6 +117,15 @@ def main():
             if (out / "meta.json").exists():
                 continue
             out.mkdir(parents=True, exist_ok=True)
+            if a.export_jobs:
+                job = dict(model=run_name, repo=mcfg["repo"], revision=mcfg.get("revision"), seed=seed, prompt=prompt,
+                           cond_frames=len(frames), cond_seconds=len(frames) / mcfg["fps"], fps=mcfg["fps"],
+                           height=mcfg["height"], width=mcfg["width"], num_frames=mcfg["num_frames"],
+                           steps=mcfg.get("steps"), guidance=mcfg.get("guidance"), exp=a.exp, scene=spec["id"],
+                           box=box, in_wh=list(in_wh), commit=sha)
+                jobs.export(out, job, [np.asarray(f) for f in _pil(frames, mcfg["width"], mcfg["height"])])
+                print(f"{run_name} {a.exp} {spec['id']} s{seed}: job written", flush=True)
+                continue
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
             r = gen.generate(frames, prompt, seed, box, in_wh, capture=not a.no_capture)

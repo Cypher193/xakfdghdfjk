@@ -95,9 +95,122 @@ models:
     patch: [1, 2, 2]
     vae_stride: [4, 8, 8]
     cfg: separate
-  cosmos3_nano:               # timing only (P11): scripts/time_nano.py in its own venv (needs diffusers main)
+
+  # Screen candidates (scripts/run_pilot.py --plan screen); P11 also times cosmos3_nano. `input:` picks the adapter
+  # in pilot/models.py INPUTS; models with `ext:` are outside diffusers and run from job files (pilot/jobs.py,
+  # scripts/ext/), show-only (no activation capture). num_frames is always the whole saved clip, input included.
+  cosmos3_nano:
     repo: nvidia/Cosmos3-Nano
-    note: Cosmos3OmniDiffusersPipeline is not in diffusers 0.41; follow the model card
+    pipeline: Cosmos3OmniPipeline   # guardrail on (pipeline default, needs cosmos_guardrail)
+    input: cosmos3_omni
+    scheduler: UniPCMultistepScheduler
+    flow_shift: 10.0          # model card; the Hub scheduler config ships 1.0
+    cpu_offload: true
+    fps: 24
+    num_frames: 121           # 5.04 s
+    height: 480               # native 720x1280; any multiple of 32 keeps the patch grid exact
+    width: 832
+    steps: 35                 # model card
+    guidance: 6.0
+    cond_frames: 5            # model card: video inputs at most 5 frames (2 latents, 0.21 s). 25 (1 + 4*6, 1.04 s)
+                              # also runs (adapter keeps latents 0..6 clean) but is outside the documented use
+    blocks: [layers]          # Cosmos3VLTextMoTDecoderLayer, output (text, gen) unbatched
+    stream: 1                 # gen stream: video tokens first, F,H,W order
+    patch: [1, 2, 2]
+    vae_stride: [4, 16, 16]   # Wan2.2 VAE
+    cfg: separate
+  skyreels13:
+    repo: Skywork/SkyReels-V2-DF-1.3B-540P-Diffusers
+    pipeline: SkyReelsV2DiffusionForcingVideoToVideoPipeline
+    input: skyreels_df
+    scheduler: UniPCMultistepScheduler
+    flow_shift: 8.0           # SkyReels-V2 generate_video_df.py default, also for video extension; Hub config ships 1.0
+    fps: 24
+    num_frames: 97            # one base_num_frames window: input + 72 new frames, 4.04 s
+    height: 544               # native 540P (544x960): the model only comes at this resolution
+    width: 960
+    steps: 30                 # generate_video_df.py defaults
+    guidance: 6.0
+    cond_frames: 25           # 1.04 s, 1 + 4*6: ends on a latent frame
+    blocks: [blocks]
+    patch: [1, 2, 2]
+    vae_stride: [4, 8, 8]
+    cfg: separate
+  skyreels14:                 # scale arm: same code path as skyreels13
+    repo: Skywork/SkyReels-V2-DF-14B-540P-Diffusers
+    pipeline: SkyReelsV2DiffusionForcingVideoToVideoPipeline
+    input: skyreels_df
+    scheduler: UniPCMultistepScheduler
+    flow_shift: 8.0
+    cpu_offload: true
+    fps: 24
+    num_frames: 97
+    height: 544
+    width: 960
+    steps: 30
+    guidance: 6.0
+    cond_frames: 25
+    blocks: [blocks]
+    patch: [1, 2, 2]
+    vae_stride: [4, 8, 8]
+    cfg: separate
+  ltx2:
+    repo: Lightricks/LTX-2
+    pipeline: LTX2ConditionPipeline
+    input: ltx2_conditions
+    ignore: ["text_encoder/diffusion_pytorch_model*"]   # duplicate 52 GB copy of the Gemma 3 text encoder
+    cpu_offload: true
+    fps: 24
+    num_frames: 121           # 8k+1, 5.04 s
+    height: 480               # multiples of 32 (native 512x768)
+    width: 832
+    steps: 30                 # pipeline docstring example
+    guidance: 3.0
+    cond_frames: 25           # 1.04 s, 1 + 8*3: ends on a latent frame
+    blocks: [transformer_blocks]   # blocks return (video, audio); video is out[0]
+    patch: [1, 1, 1]
+    vae_stride: [8, 32, 32]
+    cfg: batched
+    cond_batch_index: 1
+  helios:
+    repo: BestWishYsh/Helios-Base
+    pipeline: HeliosPipeline
+    input: helios_v2v
+    cpu_offload: true
+    fps: 24                   # every example exports at 24 fps (training fps not stated)
+    num_frames: 98            # input + two 33-frame chunks (65 new frames after the 4k+1 trim), 4.08 s
+    height: 384               # native (pipeline and README defaults)
+    width: 640
+    steps: 50
+    guidance: 5.0
+    cond_frames: 33           # the pipeline's minimum V2V input (1.375 s); ~1 s is not possible
+    blocks: [blocks]
+    tokens: last              # history tokens come first, the current chunk is the last grid_frames tokens
+    grid_frames: 33           # activations are from the first chunk (the one right after the input)
+    obj_tokens: false         # the input sits in compressed history tokens, not in the chunk grid
+    patch: [1, 2, 2]
+    vae_stride: [4, 8, 8]
+    cfg: separate
+  magi45:
+    repo: sand-ai/MAGI-1      # 4.5B-distill, scripts/ext/run_magi.py
+    ext: magi
+    fps: 24
+    num_frames: 120           # input + 96 new frames (4 chunks of 24), 5.0 s
+    height: 480               # any multiple of 16 is accepted (repo default 720x720)
+    width: 832
+    steps: 64                 # distill config default
+    guidance: null            # distill: one pass, no CFG
+    cond_frames: 24           # 1 s = one 24-frame chunk; non-causal VAE, 4 frames per latent
+  selfforcing:
+    repo: gdhe17/Self-Forcing # self_forcing_dmd.pt on Wan2.1-T2V-1.3B, scripts/ext/run_selfforcing.py
+    ext: selfforcing
+    fps: 16
+    num_frames: 81            # 21 latents, the KV-cache maximum, 5.06 s
+    height: 480               # fixed by the code (1560 tokens per latent frame)
+    width: 832
+    steps: 4                  # DMD few-step schedule
+    guidance: null            # no CFG at inference
+    cond_frames: 21           # 1.31 s, 6 latents = 2 blocks of 3 (17 frames = 5 latents is not a block multiple)
 
 # Rendered scenes (pinhole camera facing the motion plane y = 0)
 render:
