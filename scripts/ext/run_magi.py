@@ -5,7 +5,8 @@
 
 Uses the building blocks of the repo's ComfyUI node (comfyui/comfy_nodes.py) so the model loads once and the
 prefix comes from memory. MAGI-1 returns only the new frames (video_generate.py: chunks inside the prefix are not
-yielded), so the input window is pasted in front. Source read at SandAI-org/MAGI-1 0fcefdef8ce2df37a3b8890979433c06eb003328.
+yielded), so the input window is pasted in front.
+Source read at SandAI-org/MAGI-1 0fcefdef8ce2df37a3b8890979433c06eb003328.
 """
 import argparse
 import os
