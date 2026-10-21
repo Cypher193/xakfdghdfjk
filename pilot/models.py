@@ -101,6 +101,34 @@ def object_token_mask(cfg, grid, box, in_wh):
     return m
 
 
+def _cosmos25(pipe, c, pil, kw):
+    if pil:
+        kw |= dict(video=pil, num_latent_conditional_frames=2)
+    return pipe(**kw).frames[0]
+
+
+def _vace_mask(pipe, c, pil, kw):
+    if pil:
+        n = c["num_frames"]
+        grey = Image.new("RGB", (c["width"], c["height"]), (127, 127, 127))
+        known, unknown = Image.new("L", grey.size, 0), Image.new("L", grey.size, 255)
+        kw |= dict(video=pil + [grey] * (n - len(pil)), mask=[known] * len(pil) + [unknown] * (n - len(pil)))
+    return pipe(**kw).frames[0]
+
+
+def _ltx_conditions(pipe, c, pil, kw):
+    from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+    kw |= dict(frame_rate=c["fps"], decode_timestep=0.05, decode_noise_scale=0.025)
+    if pil:
+        kw["conditions"] = [LTXVideoCondition(video=pil, frame_index=0)]
+    return pipe(**kw).frames[0]
+
+
+# cfg["input"] -> fn(pipe, cfg, pil_frames_or_None, common_kwargs) -> output frames (F, H, W, 3) that start with
+# the input window (frame k = time k/fps from the input start)
+INPUTS = {"cosmos25": _cosmos25, "vace_mask": _vace_mask, "ltx_conditions": _ltx_conditions}
+
+
 class Generator:
     def __init__(self, name, cfg, run_cfg, device="cuda", pipe=None, dtype=DTYPE):
         """pipe: an already-built pipeline (tests use tiny random-weight ones); otherwise loaded from the Hub."""
@@ -146,26 +174,7 @@ class Generator:
                       num_inference_steps=c["steps"], guidance_scale=c["guidance"], generator=gen,
                       output_type="np", callback_on_step_end=cb, callback_on_step_end_tensor_inputs=["latents"])
         pil = _pil(frames, c["width"], c["height"]) if frames else None
-        if self.name.startswith("cosmos"):
-            if pil:
-                return self.pipe(video=pil, num_latent_conditional_frames=2, **common)
-            return self.pipe(**common)
-        if self.name.startswith("vace"):
-            if pil:
-                n = c["num_frames"]
-                grey = Image.new("RGB", (c["width"], c["height"]), (127, 127, 127))
-                known, unknown = Image.new("L", grey.size, 0), Image.new("L", grey.size, 255)
-                video = pil + [grey] * (n - len(pil))
-                mask = [known] * len(pil) + [unknown] * (n - len(pil))
-                return self.pipe(video=video, mask=mask, **common)
-            return self.pipe(**common)
-        if self.name.startswith("ltx"):
-            from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
-            extra = dict(frame_rate=c["fps"], decode_timestep=0.05, decode_noise_scale=0.025)
-            if pil:
-                extra["conditions"] = [LTXVideoCondition(video=pil, frame_index=0)]
-            return self.pipe(**common, **extra)
-        raise ValueError(self.name)
+        return INPUTS[c["input"]](self.pipe, c, pil, common)
 
     def blocks(self, group=None):
         return getattr(self.pipe.transformer, group or self.cfg["blocks"][0])
@@ -182,11 +191,11 @@ class Generator:
         gen = torch.Generator(self.device).manual_seed(seed)
         t0 = time.time()
         try:
-            out = self._call(list(cond_frames), prompt, gen, cap.callback)
+            video = np.asarray(self._call(list(cond_frames), prompt, gen, cap.callback))
         finally:
             cap.detach()
         wall = time.time() - t0
-        video = out.frames[0]
+        assert len(video) == c["num_frames"], f"{self.name}: {len(video)} frames, expected {c['num_frames']}"
         video = (np.clip(video, 0, 1) * 255).astype(np.uint8) if video.dtype != np.uint8 else video
         res = dict(video=video, final_latent=cap.final_latent, acts=cap.arrays() if capture else {},
                    meta=dict(model=self.name, repo=c["repo"], revision=c.get("revision"), seed=seed, prompt=prompt,

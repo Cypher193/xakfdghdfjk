@@ -39,8 +39,8 @@ def vace():
                                      vace_layers=[0, 2], vace_in_channels=96)
     pipe = D.WanVACEPipeline(transformer=tr, vae=_wan_vae(), scheduler=D.FlowMatchEulerDiscreteScheduler(shift=7.0),
                              text_encoder=te, tokenizer=tok, transformer_2=None)
-    cfg = dict(repo="tiny", fps=16, num_frames=9, height=32, width=32, steps=8, guidance=5.0, cond_frames=5,
-               blocks=["blocks", "vace_blocks"], patch=[1, 2, 2], vae_stride=[4, 8, 8], cfg="separate")
+    cfg = dict(repo="tiny", input="vace_mask", fps=16, num_frames=9, height=32, width=32, steps=8, guidance=5.0,
+               cond_frames=5, blocks=["blocks", "vace_blocks"], patch=[1, 2, 2], vae_stride=[4, 8, 8], cfg="separate")
     return pipe, cfg
 
 
@@ -61,8 +61,9 @@ def ltx():
     vae.use_framewise_encoding = vae.use_framewise_decoding = False
     pipe = D.LTXConditionPipeline(transformer=tr, vae=vae, scheduler=D.FlowMatchEulerDiscreteScheduler(),
                                   text_encoder=te, tokenizer=tok)
-    cfg = dict(repo="tiny", fps=24, num_frames=9, height=32, width=32, steps=8, guidance=3.0, cond_frames=5,
-               blocks=["transformer_blocks"], patch=[1, 1, 1], vae_stride=[4, 4, 4], cfg="batched", cond_batch_index=1)
+    cfg = dict(repo="tiny", input="ltx_conditions", fps=24, num_frames=9, height=32, width=32, steps=8, guidance=3.0,
+               cond_frames=5, blocks=["transformer_blocks"], patch=[1, 1, 1], vae_stride=[4, 4, 4], cfg="batched",
+               cond_batch_index=1)
     return pipe, cfg
 
 
@@ -84,8 +85,8 @@ def cosmos():
         text_encoder=Qwen2_5_VLForConditionalGeneration(qcfg),
         tokenizer=Qwen2Tokenizer.from_pretrained("hf-internal-testing/tiny-random-Qwen2VLForConditionalGeneration"),
         safety_checker=DummySafetyChecker())
-    cfg = dict(repo="tiny", fps=16, num_frames=9, height=32, width=32, steps=8, guidance=7.0, cond_frames=5,
-               blocks=["transformer_blocks"], patch=[1, 2, 2], vae_stride=[4, 8, 8], cfg="separate")
+    cfg = dict(repo="tiny", input="cosmos25", fps=16, num_frames=9, height=32, width=32, steps=8, guidance=7.0,
+               cond_frames=5, blocks=["transformer_blocks"], patch=[1, 2, 2], vae_stride=[4, 8, 8], cfg="separate")
     return pipe, cfg
 
 

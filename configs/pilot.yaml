@@ -19,6 +19,7 @@ models:
     repo: nvidia/Cosmos-Predict2.5-2B
     revision: diffusers/base/post-trained
     pipeline: Cosmos2_5_PredictBasePipeline
+    input: cosmos25
     fps: 16
     num_frames: 93
     height: 480               # 480p chosen after the smoke test: same behaviour as 720p, 3.5x faster
@@ -35,6 +36,7 @@ models:
   ltx2b:
     repo: Lightricks/LTX-Video-0.9.5
     pipeline: LTXConditionPipeline
+    input: ltx_conditions
     fps: 24
     num_frames: 121
     height: 480
@@ -50,6 +52,7 @@ models:
   vace13:
     repo: Wan-AI/Wan2.1-VACE-1.3B-diffusers
     pipeline: WanVACEPipeline
+    input: vace_mask
     fps: 16
     num_frames: 81
     height: 480
@@ -78,6 +81,7 @@ models:
     repo: nvidia/Cosmos-Predict2.5-14B
     revision: diffusers/base/post-trained
     pipeline: Cosmos2_5_PredictBasePipeline
+    input: cosmos25
     fps: 16
     num_frames: 93
     height: 480
