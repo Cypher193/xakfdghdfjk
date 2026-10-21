@@ -21,6 +21,10 @@ def _pil(frames, w, h):
     return [Image.fromarray(f).resize((w, h), Image.BICUBIC) for f in frames]
 
 
+def _u8(video):
+    return (np.clip(video, 0, 1) * 255).astype(np.uint8) if video.dtype != np.uint8 else video
+
+
 class Capture:
     """Forward hooks that pool block outputs at selected denoising steps."""
 
@@ -47,23 +51,22 @@ class Capture:
             if self.step not in self.steps or key in self.seen:               # first call per step = cond pass
                 return
             self.seen.add(key)
-            h = out[0] if isinstance(out, (tuple, list)) else out
-            if self.cfg.get("cfg") == "batched":
-                h = h[self.cfg["cond_batch_index"]]
-            else:
-                h = h[0]
+            h = out[self.cfg.get("stream", 0)] if isinstance(out, (tuple, list)) else out   # Cosmos 3: (text, gen)
+            if h.dim() > 2:                                                    # Cosmos 3 blocks are unbatched (N, D)
+                h = h[self.cfg["cond_batch_index"]] if self.cfg.get("cfg") == "batched" else h[0]
             h = h.reshape(-1, h.shape[-1]).float()                             # (N, D)
             n_grid = int(np.prod(self.grid))
-            pooled = {"all": h[:n_grid].mean(0)}
-            if self.obj is not None and h.shape[0] >= n_grid and self.obj.any():
+            h = h[-n_grid:] if self.cfg.get("tokens") == "last" else h[:n_grid]  # Helios: history tokens come first
+            pooled = {"all": h.mean(0)}
+            if self.obj is not None and h.shape[0] == n_grid and self.obj.any():
                 m = torch.from_numpy(self.obj.reshape(-1)).to(h.device)
-                pooled["obj"] = h[:n_grid][m].mean(0)
+                pooled["obj"] = h[m].mean(0)
             self.acts[key] = {k: v.cpu().numpy().astype(np.float16) for k, v in pooled.items()}
         return fn
 
     def callback(self, _pipe, i, _t, kwargs):
         self.step = i + 1
-        if i == self.n_steps - 1 and "latents" in kwargs:
+        if i == self.n_steps - 1 and "latents" in kwargs and self.final_latent is None:   # chunked: first chunk
             self.final_latent = kwargs["latents"].detach().float().cpu()
         return kwargs
 
@@ -83,13 +86,13 @@ class Capture:
 def token_grid(cfg):
     vt, vs, _ = cfg["vae_stride"]
     pt, ph, pw = cfg["patch"]
-    f_lat = (cfg["num_frames"] - 1) // vt + 1
+    f_lat = (cfg.get("grid_frames", cfg["num_frames"]) - 1) // vt + 1    # grid_frames: one chunk (Helios)
     return (f_lat // pt, cfg["height"] // (cfg["vae_stride"][1] * ph), cfg["width"] // (cfg["vae_stride"][2] * pw))
 
 
 def object_token_mask(cfg, grid, box, in_wh):
     """Tokens covering the object box in the latent frames that hold the input frames."""
-    if box is None:
+    if box is None or cfg.get("obj_tokens") is False:
         return None
     n_cond_latent = 1 + (cfg["cond_frames"] - 1) // cfg["vae_stride"][0]   # causal VAE: frame 0, then groups
     F, H, W = grid
@@ -124,9 +127,47 @@ def _ltx_conditions(pipe, c, pil, kw):
     return pipe(**kw).frames[0]
 
 
+def _skyreels_df(pipe, c, pil, kw):
+    kw |= dict(base_num_frames=c["num_frames"], ar_step=0, fps=c["fps"])      # one window: no second AR pass
+    if not pil:
+        from diffusers import SkyReelsV2DiffusionForcingPipeline
+        return SkyReelsV2DiffusionForcingPipeline(**pipe.components)(**kw).frames[0]
+    out = pipe(video=pil, overlap_history=len(pil), **kw).frames[0]
+    assert len(out) == len(pil) + c["num_frames"], len(out)
+    return out[len(pil):]     # raw input + decoded canvas; the canvas already starts with the (VAE-decoded) input
+
+
+def _ltx2_conditions(pipe, c, pil, kw):
+    from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
+    kw |= dict(frame_rate=c["fps"], use_cross_timestep=False, stg_scale=0.0, modality_scale=1.0,   # LTX-2.0, plain CFG
+               audio_stg_scale=0.0, audio_modality_scale=1.0, spatio_temporal_guidance_blocks=None,
+               guidance_rescale=0.0, audio_guidance_rescale=0.0)
+    if pil:
+        kw["conditions"] = [LTX2VideoCondition(frames=pil, index=0, strength=1.0)]   # latent index 0: in place
+    return pipe(**kw).frames[0]                                                     # audio is generated and dropped
+
+
+def _helios_v2v(pipe, c, pil, kw):
+    if not pil:
+        return pipe(**kw).frames[0]
+    out = pipe(video=pil, **kw | dict(num_frames=c["num_frames"] - len(pil))).frames[0]   # new frames only
+    return np.concatenate([np.stack([np.asarray(f) for f in pil]), _u8(out)])
+
+
+def _cosmos3_omni(pipe, c, pil, kw):
+    kw |= dict(fps=c["fps"])
+    if pil:
+        assert (len(pil) - 1) % 4 == 0, "Cosmos 3 keeps 4k+1 input frames; others would shift or freeze the window"
+        kw |= dict(video=pil, condition_frame_indexes_vision=list(range((len(pil) - 1) // 4 + 1)),
+                   condition_video_keep="first")
+    return pipe(**kw).video                      # (F, H, W, 3), conditioning latents kept clean in place
+
+
 # cfg["input"] -> fn(pipe, cfg, pil_frames_or_None, common_kwargs) -> output frames (F, H, W, 3) that start with
 # the input window (frame k = time k/fps from the input start)
-INPUTS = {"cosmos25": _cosmos25, "vace_mask": _vace_mask, "ltx_conditions": _ltx_conditions}
+INPUTS = {"cosmos25": _cosmos25, "vace_mask": _vace_mask, "ltx_conditions": _ltx_conditions,
+          "skyreels_df": _skyreels_df, "ltx2_conditions": _ltx2_conditions, "helios_v2v": _helios_v2v,
+          "cosmos3_omni": _cosmos3_omni}
 
 
 class Generator:
@@ -138,7 +179,14 @@ class Generator:
             kw = dict(torch_dtype=dtype)
             if cfg.get("revision"):
                 kw["revision"] = cfg["revision"]
-            pipe = getattr(diffusers, cfg["pipeline"]).from_pretrained(cfg["repo"], **kw)
+            src = cfg["repo"]
+            if cfg.get("ignore"):             # repo holds duplicate weight shards: skip them (container disk)
+                from huggingface_hub import snapshot_download
+                src = snapshot_download(src, revision=cfg.get("revision"), ignore_patterns=cfg["ignore"])
+            pipe = getattr(diffusers, cfg["pipeline"]).from_pretrained(src, **kw)
+        if cfg.get("scheduler"):
+            pipe.scheduler = getattr(diffusers, cfg["scheduler"]).from_config(pipe.scheduler.config,
+                                                                              flow_shift=cfg["flow_shift"])
         self.pipe = pipe
         if cfg.get("cpu_offload"):            # each component goes to the GPU only while it runs (48 GB cards)
             self.pipe.enable_model_cpu_offload()
@@ -195,8 +243,8 @@ class Generator:
         finally:
             cap.detach()
         wall = time.time() - t0
-        assert len(video) == c["num_frames"], f"{self.name}: {len(video)} frames, expected {c['num_frames']}"
-        video = (np.clip(video, 0, 1) * 255).astype(np.uint8) if video.dtype != np.uint8 else video
+        assert not cond_frames or len(video) == c["num_frames"], f"{self.name}: {len(video)} frames != num_frames"
+        video = _u8(video)
         res = dict(video=video, final_latent=cap.final_latent, acts=cap.arrays() if capture else {},
                    meta=dict(model=self.name, repo=c["repo"], revision=c.get("revision"), seed=seed, prompt=prompt,
                              cond_frames=len(cond_frames), cond_seconds=len(cond_frames) / c["fps"], fps=c["fps"],
