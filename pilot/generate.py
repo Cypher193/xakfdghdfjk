@@ -47,10 +47,18 @@ def read_frames(path, times):
 
 
 def rendered_inputs(spec, render_dir, fps, n):
-    """Input frames at exact times k/fps from the 48 fps input render, plus the object box over the window."""
+    """Input frames at exact times k/fps, plus the object box over the window. Source: the first render that covers
+    the window at a multiple of fps: the 48 fps input clip (1.125 s), a longer one (_input_long), or the full clip."""
     times = np.arange(n) / fps
-    frames, src_fps = read_frames(Path(render_dir) / f"{spec['id']}_input.mp4", times)
-    assert abs(src_fps - 48) < 0.5, "input clips must be rendered at 48 fps"
+    for suffix in ("_input", "_input_long", ""):
+        cap = cv2.VideoCapture(str(Path(render_dir) / f"{spec['id']}{suffix}.mp4"))
+        src_fps, count = cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+        if src_fps > 0 and (src_fps / fps).is_integer() and round(times[-1] * src_fps) < count:
+            frames, _ = read_frames(Path(render_dir) / f"{spec['id']}{suffix}.mp4", times)
+            break
+    else:
+        raise FileNotFoundError(f"no render of {spec['id']} covers {n} frames at {fps} fps")
     boxes = []
     for o in spec["objects"]:
         x, z = object_track(spec, o, times)

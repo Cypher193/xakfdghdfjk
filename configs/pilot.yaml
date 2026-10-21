@@ -210,7 +210,8 @@ models:
     width: 832
     steps: 4                  # DMD few-step schedule
     guidance: null            # no CFG at inference
-    cond_frames: 21           # 1.31 s, 6 latents = 2 blocks of 3 (17 frames = 5 latents is not a block multiple)
+    cond_frames: 9            # 0.56 s, 3 latents = 1 block (blocks of 3 latents; 21 frames = 1.31 s is longer
+                              # than the 1.125 s input renders, and 16 fps cannot be read exactly from the 24 fps full clip)
 
 # Rendered scenes (pinhole camera facing the motion plane y = 0)
 render:

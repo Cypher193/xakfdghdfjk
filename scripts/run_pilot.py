@@ -90,6 +90,11 @@ def screen_plan(tier):
     plan = []
     for m in screen_models(tier):
         ext = models[m].get("ext")
+        if m == "helios":                            # its 1.375 s window is longer than the 1.125 s gravity inputs
+            render = "for g in 0.5 1.0 2.0; do $BPY_PYTHON -m pilot.render data/scenes/kgrav/kgrav_00_g$g.json " \
+                     "--out data/renders/kgrav --gpu --fps 48 --seconds 1.5 --suffix _input_long || exit 1; done"
+            plan.append(cmd("render:kgrav_long", ["-c", f"import subprocess, sys; "
+                                                        f"sys.exit(subprocess.call(['bash', '-c', {render!r}]))"], 600))
         plan += [gen(m, e, n, [0], ext) for e, n in SCREEN_EXPS["A" if m in TIERS["A"] else "B"]]
         if not ext:                                  # keep the container disk under 300 GB: one model cached at a time
             cache = str(hub / f"models--{models[m]['repo'].replace('/', '--')}")
