@@ -66,6 +66,7 @@ models:
     cfg: separate
   vace14:                     # scale pair of vace13 (screen tier C, A100-80GB)
     repo: Wan-AI/Wan2.1-VACE-14B-diffusers
+    vae_tiling: true          # 48 GB cards: untiled decode ran out of memory on the L40S
     pipeline: WanVACEPipeline
     input: vace_mask
     cpu_offload: true
