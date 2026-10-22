@@ -84,14 +84,18 @@ def verify():
 
 def stop_pod():
     """End /start.sh's final `sleep infinity`: start.sh exits, docker-init (PID 1) exits, the container stops."""
-    start = subprocess.run(["pgrep", "-f", "/start.sh"], capture_output=True, text=True).stdout.split()
-    for pid in start:
-        kids = subprocess.run(["pgrep", "-P", pid, "-f", "sleep infinity"], capture_output=True, text=True).stdout.split()
-        for k in kids:
-            log(f"stopping pod: kill sleep infinity (pid {k}, child of start.sh {pid})")
-            subprocess.run(["kill", k])
+    for _ in range(6):         # some hosts run nested start.sh processes: a second one starts a new sleep, so repeat
+        start = subprocess.run(["pgrep", "-f", "/start.sh"], capture_output=True, text=True).stdout.split()
+        if not start:
             return True
-    log("could not find start.sh's sleep infinity; pod left running")
+        for pid in start:
+            kids = subprocess.run(["pgrep", "-P", pid, "-f", "sleep infinity"], capture_output=True, text=True).stdout.split()
+            for k in kids:
+                log(f"stopping pod: kill sleep infinity (pid {k}, child of start.sh {pid})")
+                subprocess.run(["kill", k])
+        time.sleep(10)
+    log("start.sh still running after killing its sleeps: signalling PID 1")
+    subprocess.run(["kill", "-TERM", "1"])
     return False
 
 
