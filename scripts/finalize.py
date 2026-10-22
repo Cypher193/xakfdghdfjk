@@ -101,7 +101,7 @@ def main():
     ap.add_argument("--hard-at", required=True, help="UTC; the pod is stopped by then whatever happens")
     ap.add_argument("--no-stop-pod", action="store_true", help="testing: do everything except stopping the pod")
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
-    ap.add_argument("--tier", choices=["A", "B", "all"], default="all")
+    ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all")
     a = ap.parse_args()
     if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
         sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")

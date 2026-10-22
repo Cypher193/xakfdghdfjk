@@ -28,7 +28,7 @@ PY = sys.executable
 EST = {"vace13": 284, "cosmos2b": 240, "ltx2b": 27, "cosmos14b": 700, "p7_ltx2b": 6, "p7_wan22_5b": 45,
        # screen: guesses (A100-equivalent), not measured
        "skyreels13": 360, "cosmos3_nano": 960, "magi45": 300, "selfforcing": 30, "ltx2": 300, "helios": 600,
-       "skyreels14": 1500}
+       "skyreels14": 1500, "vace14": 900}
 LOAD_S = 150                                       # model load per step
 
 
@@ -71,12 +71,14 @@ PLAN = [  # priority order: the gates that matter most come first (approved plan
 ]
 # Screen of candidate generators, seed 0. Tier A: main-slot candidates, tier B: scale arms; cheapest first (EST).
 # The tiers can run on two pods at once: their run dirs, tables and logs are disjoint.
-TIERS = {"A": ["selfforcing", "magi45", "skyreels13", "cosmos3_nano"], "B": ["ltx2", "helios", "skyreels14"]}
-SCREEN_EXPS = {"A": [("b1", 8), ("b5", 3), ("b1real", 2)], "B": [("b1", 4), ("b5", 3)]}
+TIERS = {"A": ["selfforcing", "magi45", "skyreels13", "cosmos3_nano"], "B": ["ltx2", "helios", "skyreels14"],
+         "C": ["ltx2", "helios", "cosmos14b", "vace14", "skyreels14"]}      # C: 14B+ models on one A100-80GB
+SCREEN_EXPS = {"A": [("b1", 8), ("b5", 3), ("b1real", 2)], "B": [("b1", 4), ("b5", 3)],
+               "C": [("b1", 8), ("b1real", 2)]}   # no b5: every model broke on the gravity scenes (screen A/B)
 
 
 def screen_models(tier):
-    return TIERS["A"] + TIERS["B"] if tier == "all" else TIERS[tier]
+    return list(dict.fromkeys(m for t in TIERS.values() for m in t)) if tier == "all" else TIERS[tier]
 
 
 def screen_ext(tier):
@@ -101,12 +103,13 @@ def screen_plan(tier, skip=()):
     plan = []
     for m in [m for m in screen_models(tier) if m not in skip]:
         ext = models[m].get("ext")
-        if m == "helios":                            # its 1.375 s window is longer than the 1.125 s gravity inputs
+        exps = SCREEN_EXPS[tier] if tier in SCREEN_EXPS else SCREEN_EXPS[next(t for t in TIERS if m in TIERS[t])]
+        if m == "helios" and any(e == "b5" for e, _ in exps):                            # its 1.375 s window is longer than the 1.125 s gravity inputs
             render = "for g in 0.5 1.0 2.0; do $BPY_PYTHON -m pilot.render data/scenes/kgrav/kgrav_00_g$g.json " \
                      "--out data/renders/kgrav --gpu --fps 48 --seconds 1.5 --suffix _input_long || exit 1; done"
             plan.append(cmd("render:kgrav_long", ["-c", f"import subprocess, sys; "
                                                         f"sys.exit(subprocess.call(['bash', '-c', {render!r}]))"], 600))
-        plan += [gen(m, e, n, [0], ext) for e, n in SCREEN_EXPS["A" if m in TIERS["A"] else "B"]]
+        plan += [gen(m, e, n, [0], ext) for e, n in exps]
         if not ext:                                  # keep the container disk under 300 GB: one model cached at a time
             plan.append(cmd(f"free:{m}", ["-c", f"import sys; sys.path.insert(0, 'scripts'); "
                                                 f"from run_pilot import free_hf; free_hf({models[m]['repo']!r})"], 10))
@@ -159,7 +162,7 @@ def main():
     ap.add_argument("--budget-h", type=float, default=11.5)
     ap.add_argument("--reserve-h", type=float, default=0.4, help="kept for final scoring, probes and push")
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
-    ap.add_argument("--tier", choices=["A", "B", "all"], default="all", help="screen: A, B or both")
+    ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all", help="screen: A, B or both")
     ap.add_argument("--skip", nargs="*", default=[], help="screen: models to leave out")
     a = ap.parse_args()
     if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop

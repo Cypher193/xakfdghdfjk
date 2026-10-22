@@ -26,7 +26,7 @@ def alive():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tier", choices=["A", "B", "all"], required=True)
+    ap.add_argument("--tier", choices=["A", "B", "C", "all"], required=True)
     ap.add_argument("--hard-at", required=True, help="UTC, finalize's --hard-at")
     ap.add_argument("--grace-min", type=float, default=30)
     ap.add_argument("--dry-run", action="store_true")

@@ -64,6 +64,22 @@ models:
     patch: [1, 2, 2]
     vae_stride: [4, 8, 8]
     cfg: separate
+  vace14:                     # scale pair of vace13 (screen tier C, A100-80GB)
+    repo: Wan-AI/Wan2.1-VACE-14B-diffusers
+    pipeline: WanVACEPipeline
+    input: vace_mask
+    cpu_offload: true
+    fps: 16
+    num_frames: 81
+    height: 480
+    width: 832
+    steps: 50
+    guidance: 5.0
+    cond_frames: 17
+    blocks: [blocks, vace_blocks]
+    patch: [1, 2, 2]
+    vae_stride: [4, 8, 8]
+    cfg: separate
   wan22_5b:                   # C1-inv / C1-noise only (never generates in this study)
     repo: Wan-AI/Wan2.2-TI2V-5B-Diffusers
     vae_tiling: true
