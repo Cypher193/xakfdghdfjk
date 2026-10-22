@@ -27,7 +27,7 @@ if [ -n "$EXT" ]; then
 fi
 STOP=$(utc_in "$BUDGET + 0.25")      # backstop only: run_pilot already skips steps that do not fit the budget
 HARD=$(utc_in "$BUDGET + 1.0")
-python scripts/run_pilot.py --plan screen --tier "$TIER" --budget-h "$BUDGET" &
+python scripts/run_pilot.py --plan screen --tier "$TIER" --budget-h "$BUDGET" "${@:3}" &   # e.g. --skip ltx2
 # Waits for run_pilot (or STOP), uploads, verifies on HF, then stops the pod (finalize.stop_pod).
 python scripts/finalize.py --stop-at "$STOP" --hard-at "$HARD" --plan screen --tier "$TIER"
 echo "SCREEN POD DONE ($TIER)"
