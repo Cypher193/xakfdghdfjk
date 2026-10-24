@@ -5,7 +5,8 @@
 
 Every 60 s: when none of the pod's processes is alive (setup, screen_pod.sh, run_pilot.py, finalize.py, restart2.sh),
 or the time is 30 min past --hard-at (finalize hung), it pushes (sync.py push, at most 20 min), verifies on HF, and
-stops the pod with finalize.stop_pod. Stopping ends GPU billing; deleting the pod needs the account key (laptop side).
+stops the pod with finalize.stop_pod (vast.ai: destroyed only if verified, else stopped). RunPod: deleting the
+stopped pod needs the account key (laptop side).
 A normal finish never triggers it: finalize stops the pod first, which also ends the guard.
 """
 import argparse
@@ -31,8 +32,8 @@ def main():
     ap.add_argument("--grace-min", type=float, default=30)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
-    if not os.environ.get("RUNPOD_POD_ID"):
-        sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
+    if not (os.environ.get("RUNPOD_POD_ID") or os.environ.get("CONTAINER_ID")):   # pushes to the shared HF dataset:
+        sys.exit("run on a RunPod pod or vast.ai instance (RUNPOD_POD_ID / CONTAINER_ID unset)")   # never from a laptop
     os.environ["SCREEN_TIER"] = a.tier               # before importing sync (via finalize): it sets the push patterns
     sys.path.insert(0, str(ROOT / "scripts"))
     import finalize
@@ -48,11 +49,13 @@ def main():
     for p in procs:                                   # deadline case: stop the hung processes before pushing
         subprocess.run(["pkill", "-f", p])
     finalize.run([sys.executable, "scripts/sync.py", "push"], 1200, "guard upload")
+    check = {}
     try:
-        finalize.log(f"guard verify: {finalize.verify()}")
+        check = finalize.verify()
+        finalize.log(f"guard verify: {check}")
     except Exception as e:
         finalize.log(f"guard verify failed: {type(e).__name__}: {e}")
-    finalize.stop_pod()
+    finalize.stop_pod(check.get("missing") == 0)
 
 
 if __name__ == "__main__":

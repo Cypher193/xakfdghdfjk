@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fresh RunPod pod (image ghcr.io/cypher193/cvpr_vail, >= 200 GB disk at /workspace, any datacenter).
+# Fresh RunPod pod or vast.ai instance (image ghcr.io/cypher193/cvpr_vail, >= 200 GB disk at /workspace).
 # Data persists on the private HF dataset repo (scripts/sync.py); weights are re-downloaded per pod.
-# Set HF_TOKEN as a RunPod secret / env var. Never write the token into the repo.
+# Set HF_TOKEN as a RunPod secret / vast.ai account env var. Never write the token into the repo.
 # SCREEN_TIER set (scripts/screen_pod.sh): only SAM2 is pre-downloaded (each screen step fetches its own model),
 # sync.py pulls/pushes only this tier's files, and the sync log carries the tier suffix.
 set -euo pipefail

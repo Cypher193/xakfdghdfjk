@@ -165,8 +165,8 @@ def main():
     ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all", help="screen: A, B or both")
     ap.add_argument("--skip", nargs="*", default=[], help="screen: models to leave out")
     a = ap.parse_args()
-    if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
-        sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
+    if not (os.environ.get("RUNPOD_POD_ID") or os.environ.get("CONTAINER_ID")):   # pushes to the shared HF dataset:
+        sys.exit("run on a RunPod pod or vast.ai instance (RUNPOD_POD_ID / CONTAINER_ID unset)")   # never from a laptop
     global TAG
     TAG = tag(a.plan, a.tier)
     plan = PLAN if a.plan == "main" else screen_plan(a.tier, a.skip)

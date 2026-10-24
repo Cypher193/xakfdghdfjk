@@ -7,8 +7,9 @@
 2. Stops the orchestrator and every worker (generation, scoring, probes, timing).
 3. Uploads; scores the remaining clips; uploads; runs the final probes; uploads (each step time-boxed).
 4. Verifies every local data file is on HF (data/logs/final_check.json), re-uploading until --hard-at.
-5. Stops the pod: ends /start.sh's `sleep infinity`, so the container exits and GPU billing stops.
-   The pod then shows as Exited; deleting it is done with the account key (laptop side).
+5. Stops the pod. RunPod: ends /start.sh's `sleep infinity`, so the container exits and GPU billing stops; the pod
+   then shows as Exited and is deleted with the account key (laptop side). vast.ai: destroys the instance with its own
+   CONTAINER_API_KEY when HF has every file (a stopped instance still bills for its disk), else only stops it.
 Runs even if verification is incomplete at --hard-at: the deadline wins, the check file says what is missing.
 Screen: scores only the tier's models into its own table, no probes, log and check files suffixed _screen_{tier}.
 """
@@ -16,6 +17,7 @@ import argparse
 import fnmatch
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -82,8 +84,19 @@ def verify():
     return dict(local=len(loc), remote=len(remote), missing=len(missing), missing_sample=missing[:20])
 
 
-def stop_pod():
-    """End /start.sh's final `sleep infinity`: start.sh exits, docker-init (PID 1) exits, the container stops."""
+def stop_pod(verified=False):
+    """vast.ai: destroy the instance if every file is on HF, else stop it (its disk, and the data, are kept).
+    RunPod: end /start.sh's final `sleep infinity`: start.sh exits, docker-init (PID 1) exits, the container stops."""
+    if os.environ.get("CONTAINER_API_KEY"):
+        cmd = ["destroy", "instance", os.environ["CONTAINER_ID"], "-y"] if verified else \
+              ["stop", "instance", os.environ["CONTAINER_ID"]]
+        log(f"stopping instance: vastai {' '.join(cmd)}")
+        if not shutil.which("vastai"):                # setup died before installing requirements.txt
+            subprocess.run([PY, "-m", "pip", "install", "-q", "vastai"])
+        r = subprocess.run(["vastai", *cmd], capture_output=True, text=True,   # key via env: not in argv or the log
+                           env=dict(os.environ, VAST_API_KEY=os.environ["CONTAINER_API_KEY"]))
+        log(f"vastai rc={r.returncode}: {(r.stdout + r.stderr).strip()[-300:]}")
+        return r.returncode == 0
     for _ in range(6):         # some hosts run nested start.sh processes: a second one starts a new sleep, so repeat
         start = subprocess.run(["pgrep", "-f", "/start.sh"], capture_output=True, text=True).stdout.split()
         if not start:
@@ -107,8 +120,8 @@ def main():
     ap.add_argument("--plan", choices=["main", "screen"], default="main")
     ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all")
     a = ap.parse_args()
-    if not os.environ.get("RUNPOD_POD_ID"):          # it pushes to the shared HF dataset: never from a laptop
-        sys.exit("run on a RunPod pod (RUNPOD_POD_ID unset)")
+    if not (os.environ.get("RUNPOD_POD_ID") or os.environ.get("CONTAINER_ID")):   # pushes to the shared HF dataset:
+        sys.exit("run on a RunPod pod or vast.ai instance (RUNPOD_POD_ID / CONTAINER_ID unset)")   # never from a laptop
     from run_pilot import FINAL_PROBES, score_args, tag      # same probe list and scorer scope as the orchestrator
     global LOG
     t = tag(a.plan, a.tier)
@@ -150,7 +163,7 @@ def main():
     if a.no_stop_pod:
         log("--no-stop-pod: leaving the pod running")
         return
-    stop_pod()
+    stop_pod(check.get("verified", False))
 
 
 if __name__ == "__main__":

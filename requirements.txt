@@ -14,3 +14,4 @@ scipy
 scikit-learn
 pandas
 pyyaml
+vastai            # vast.ai instances destroy themselves at the end (scripts/finalize.py stop_pod)
