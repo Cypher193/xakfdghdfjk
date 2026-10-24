@@ -48,7 +48,10 @@ def attach_ssh(iid):
     """Team accounts cannot hold account-level SSH keys (400 "only in personal context"): attach this laptop's key per instance."""
     pub = Path.home() / ".ssh/id_ed25519.pub"
     if pub.exists():
-        vast("attach", "ssh", iid, pub.read_text().strip())
+        try:
+            vast("attach", "ssh", iid, pub.read_text().strip())
+        except SystemExit:                    # the CLI prints a Python repr here, not JSON; the key is attached anyway
+            pass
 
 
 def cheapest(n=3):
