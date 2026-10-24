@@ -213,8 +213,8 @@ def main():
     while (procs := alive()) and time.time() < deadline:
         if a.monitor:
             names = " ".join(procs)
-            prev = beat("finalize" if "finalize.py" in names else "running" if "run_pilot.py" in names else
-                        "setup" if "setup" in names and len(procs) == 1 else "running", prev)
+            prev = beat("running" if "run_pilot.py" in names else "finalize" if "finalize.py" in names else   # finalize
+                        "setup" if "setup" in names and len(procs) == 1 else "running", prev)             # waits alongside
         time.sleep(30)
     finalize.log(f"guard triggered: {'deadline passed' if procs else 'no pod process alive'} (alive: {procs})")
     if a.monitor:
