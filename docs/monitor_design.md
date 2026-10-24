@@ -140,3 +140,83 @@ Settled before coding; the code follows these exactly.
 13. **API shapes.** `/api/state`: `{now, reaper:{enabled, dry_run, last_ok, last_err}, totals:{running, loading, dead, gpus:{name: n}, dph_now, spent, clips_done, clips_total, eta_h}, monitor:{inst, ip, dph, up_min}, blocks:[{block, clips_done, clips_total, spent, eta_h, shards:[{inst, label, shard, dot, age_s, status, actual_status, gpu, host, step, clips_done, clips_total, used_h, budget_h, gpu_util, vram_gb, vram_total_gb, dph, spent, eta_h}]}], kills:[last 24 h kill events]}`. `/api/inst/{id}`: `{inst, label, latest, vast, series:{ts, gpu_util, vram_gb, cpu_pct, ram_gb, net_mbps}, events:[≤ 200 {ts, level, line}], tail}`. `/api/events?level=&block=&limit=200`: `[{ts, inst, label, level, line}]`, newest first.
 14. **Levels.** error: `\bEND \S+: rc=(?!0,)` (rc ≠ 0, including timeout), a status change to triggered, every kill. warn: `\bSKIP \S+:`, first-seen-dead, reaper vastai failures or 429. info: everything else.
 15. **Self-check.** `python scripts/monitor.py --selftest`: bind port 0, start the server in a daemon thread with db `:memory:`, token "t", MONITOR_VAST_KEY removed; assert POST /hb without token → 401; POST /hb with Bearer t, label `kvs-x-1of2`, clips 6/12, used_h 1, events [a START, an `END x: rc=1, …`] → 200; GET /api/state → block "x", shard "1/2", clips_done 6, eta_h 1.0; GET /api/events → levels [info, error]; GET /?t=t → 302 with `kvs_t=` in Set-Cookie and GET / with that cookie → 200; label parse of `kvs-screen-A` and `foo` → screen/A and other/foo. Print "selftest ok", exit 0.
+
+## Appendix B: page UI spec
+
+Content max-width 760 px, centred, 16 px gutters; system font stack; sizes 12 (meta, labels, events), 14 (body, rows,
+titles at weight 600), 20 (tile values), 11 px monospace for the log tail; line-height 1.35; `tabular-nums` on body;
+spacing 4 / 8 / 12 / 16 / 24 (gutter 16, card padding 12, card gap 12, row padding 8, tile gap 8, section gap 24).
+
+**Skeleton.** (a) Sticky header, 48 px, bottom border: "kvs monitor" left; right "updated 12 s ago" (client clock from
+the last good fetch, ticks every 1 s, red after 45 s) and a reaper chip: on (green) / dry-run (yellow) / off (grey) /
+error (red, `last_err` set) / lagging (yellow, enabled and `last_ok` older than 180 s). (b) Red banner, not sticky: one
+tappable line per red dot ("#1003 cosmos2b 3/4 · no beat 6 min", max 3 then "+N more") and one per kill in the last hour
+("KILL … · 20 min ago"); tapping opens that instance; `reaper.last_err` is a separate yellow-bar line under it.
+(c) Stat tiles. (d) One card per block, "other" last; on ≥ 720 px the detail card sits after the open row's block.
+(e) Events. (f) Footer: "monitor #9001 · 1.2.3.4 · $0.06/h · up 26 h · GPUs 4×RTX 6000Ada, 1×RTX 4090", or "monitor not
+in vast list".
+
+**Stat tiles.** 3 columns under 720 px, 6 above; label 12 muted, value 20 tabular, optional 12 sub-line. Running
+(sub "+N loading"; sub "N late" in yellow if any yellow dot) · Dead (value and label red when > 0) · $/h now ("$1.84") ·
+Spent ("$41.20", "$412" when ≥ 100) · Clips (value "43 %", sub "1234/2880") · ETA ("5.8 h", "2.1 d" when ≥ 48 h, "—").
+
+**Block card.** Surface, 1 px border, radius 8, padding 12. Header line 1: block name, shard counts by word ("live 2 ·
+late 1 · stale 1 · loading 1", zeros omitted, stale in red), "$12.40" right-aligned. Header line 2: 6 px div bar (accent
+on border track), "61/144", "eta 5.8 h". Shard rows sorted by k; top border, padding 8 px 0, min-height 48, whole row is
+the tap target; open row gets `aria-current` and a 3 px accent left border. Line 1: 10 px dot, status word (min-width 64,
+coloured text), shard id (600), step (flex 1, muted, ellipsis; when status ≠ running the status word comes first, e.g.
+"finalize", "triggered b1:x"), eta right-aligned. Line 2: bar (flex 1, min 48 px), "61/144", "97%", "19/48G", "4.2/10h",
+"$2.50", 8 px gaps, no separators, flex-wrap fallback. Words: green "live", yellow "late", red "stale", grey = vast
+`actual_status` or "gone", loading "loading", step "done" → "done" (green, full bar). Loading row: hollow dot (yellow /
+red fill after 30 / 60 min), "loading", shard, `actual_status` in the step slot; line 2 "12 min since start · $0.42/h", no
+bar. Not-ours row: grey dot, "not ours", full label as id, step empty, whole row muted; line 2 "gpu · $0.30/h"; no kill
+button in its detail.
+
+**Detail.** Under 720 px: fixed bottom sheet (80 vh, scroll, top radius 12, padding 16), backdrop rgba(0,0,0,.45) closes
+it, body overflow hidden while open, 40×40 "×" close button (aria-label) in a sticky first line. ≥ 720 px: static card
+after the open row's block card, re-attached after each render; Esc closes. Order: identity (label 600 + "#inst"; muted
+line gpu · host · $/h · up 4.2 h or "up 34 min"); sparklines in a 2-column grid, net spanning both: label 12 muted with
+current value 14/600 right-aligned, svg viewBox 0 0 120 24, width 100 %, height 32, preserveAspectRatio none, polyline
+stroke currentColor 1.5, vector-effect non-scaling-stroke, "min 12 · max 98" under it, scales per Appendix 3, line
+breaks at null and at ts gaps > 90 s; log tail `<pre>` max-height 240, mono 11/1.35, newest at bottom, re-scrolls to
+bottom only if it was at the bottom; events (section rows without the block badge, 50); kill button full width 44 px,
+danger background, white text, "Destroy #1003", confirm "Destroy kvs-cosmos2b-3of4 (#1003)? Clips since the last HF sync
+(≤ 15 min) are lost.", then an inline result line ("destroyed" / "dry-run: logged, not destroyed" / the error body);
+disabled and labelled "kill needs MONITOR_VAST_KEY" when the reaper is off.
+
+**Events.** Heading; two chip groups (single-select buttons, aria-pressed, 40 px tall, padding 0 12, radius 20): All /
+Warn+ / Error and All blocks + one per block; pressed chip = text on surface with 2 px border. Row: 3 px level bar left
+(red / yellow / transparent), time "09:14" (12 muted tabular, full date in title), block badge (12, 1 px border, radius 4;
+the label itself when block is "other"), text with overflow-wrap anywhere; warn/error rows start with the word "warn" /
+"error" in the level colour; strip a leading "YYYY-MM-DD HH:MM:SS ". limit=100. Empty: "No events for this filter."
+New field: `block` on `/api/events` rows.
+
+**Colours (light / dark).** bg #f3f4f6 / #0e1013 · surface #ffffff / #181b20 · border #d4d8de / #2d323b · text #16181d /
+#e7e9ec · muted #596070 / #9ba2ae · green #17803a / #4fc46d · yellow #8a5d00 / #e2b33c · red #c42b1c / #ff6e64 · grey
+#636b78 / #8f96a3 · accent #2b5fd9 / #7ea6ff · danger #b42318 / #c4291c (white text). All text pairs ≥ 4.5:1 on surface
+and bg. Banner: danger with white text; yellow banner line: text on surface with a yellow left bar.
+
+**Empty and failure.** No instances: one card "No instances yet. Workers appear after their first beat (30 s) or the
+next vast listing (60 s)." plus "Reaper off: only instances that send beats are listed." when off; tiles 0 / "—".
+Unreachable: keep last data at opacity .55, header "unreachable · last ok 2 min ago" in red, banner "Monitor unreachable
+(network / HTTP 502). Retrying every 15 s."; on 401 "Not signed in: open the link with ?t=TOKEN once." A failed detail
+fetch shows the same inside the sheet; no unhandled promise.
+
+**Server change.** An instance with beats but no vast row, while the reaper has a `last_ok`, is dot "grey", status
+"gone": out of running/dead counts, clips kept in the block totals (a finished or destroyed worker otherwise stays red
+for 24 h).
+
+**`--demo`.** db `:memory:`, token "demo", vast key "demo", dry-run, reaper thread not started, `app.vast` set directly,
+reaper `last_ok` = now − 40, prints `http://localhost:8787/?t=demo`. Beats every 30 s over 2 h with a 10 min gap in
+#1001. cosmos2b (`kvs-cosmos2b-kof4`): 1/4 #1001 green (beat 20 s ago, b1:cosmos2b, 61/144, 4.2/10 h, gpu 97, vram
+19.4/47.5, RTX 6000Ada, machine 8821 CZ, $0.42/h); 2/4 #1002 yellow (beat 90 s ago, 40/144); 3/4 #1003 red (beat 6 min
+ago, vast running, 22/144); 4/4 #1004 loading (vast loading, start now − 12 min, no beats). wan5b: 1/3 #2001 done (step
+"done", status finalize, 144/144, beat 15 s ago); 2/3 #2002 green, 2/144 (ETA "—"); 3/3 #2003 vast exited, last beat
+25 min ago. #3001 vast label "jupyter-sarthak", running, $0.30/h, no beats. #9001 kvs-monitor, start now − 26 h, $0.06/h,
+ip 1.2.3.4. Events over 2 h: info START / END rc=0; warn "SKIP b2:wan5b: …", "stale: no beat 3 min, vast running" (#1003),
+"reaper: vastai rc=1: too frequent" (inst 0, label "reaper"); error "END b1:cosmos2b: rc=1, …" (#1002), "guard triggered
+on kvs-wan5b-1of3"; kill "KILL kvs-wan5b-9of9 #2999: no beat for 11 min" 20 min ago.
+
+**Removed from the current page:** both `<select>`s, the `#hdr` text dump, `scrollIntoView`, `<progress>`, gpu/host/eta
+text in the shard row, the second `<pre>`, " | "-joined kill lines, max-width 640, the detail re-render that reset the
+log scroll.
