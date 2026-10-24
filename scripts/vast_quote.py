@@ -26,7 +26,7 @@ GPUS = {"A100 SXM4": (1.00, "measured"), "A100 PCIE": (1.15, "est"), "L40S": (1.
         "A40": (2.10, "est"), "RTX 4090": (1.30, "est"), "RTX 5090": (1.00, "est"), "RTX 4080S": (1.80, "est"),
         "RTX PRO 6000 WS": (0.70, "est"), "RTX PRO 6000 Max-Q": (0.75, "est"), "RTX PRO 6000 S": (0.70, "est"),
         "RTX PRO 5000": (1.20, "est"), "RTX PRO 4000": (2.00, "est"), "RTX 6000D": (1.00, "est"),
-        "RTX 3090": (2.00, "est"), "RTX 3090 Ti": (1.90, "est"), "RTX A5000": (2.40, "est"), "RTX 4500Ada": (2.00, "est"),
+        "RTX 3090": (2.90, "measured, LTX-2B 79 s/clip"), "RTX 3090 Ti": (1.90, "est"), "RTX A5000": (2.40, "est"), "RTX 4500Ada": (2.00, "est"),
         "H100 SXM": (0.50, "est"), "H100 PCIE": (0.55, "est"), "H100 NVL": (0.50, "est"), "H200": (0.45, "est"),
         "H200 NVL": (0.45, "est"), "B200": (0.30, "est")}
 
