@@ -130,7 +130,7 @@ def monitor(a):
             print(f"\nmonitor #{iid}: {url}")
             return
         print(f"#{iid} did not come up, destroying")
-        vast("destroy", "instance", iid)
+        vast("destroy", "instance", iid, "-y")
     sys.exit(1)
 
 
@@ -156,7 +156,7 @@ def destroy(a):
         sys.exit(f"refusing: #{a.id} has label {label!r}, not kvs-*")
     if not a.yes and input(f"destroy #{a.id} ({label}, {inst.get('gpu_name')}, {inst.get('actual_status')})? [y/N] ").lower() != "y":
         sys.exit("aborted")
-    print(vast("destroy", "instance", a.id))
+    print(vast("destroy", "instance", a.id, "-y"))
 
 
 def main():

@@ -239,7 +239,7 @@ def kill(app, inst, label, reason, last_ts, b):
             return False
         app.dry_seen.add((inst, reason.split()[0]))
     else:
-        rc, out, err = vastai(app, "destroy", "instance", str(inst))
+        rc, out, err = vastai(app, "destroy", "instance", str(inst), "-y")     # without -y the CLI prompts [y/N]
         if rc:
             app.event(inst, label, f"reaper: destroy #{inst} failed rc={rc}", "warn")
             print(f"destroy {inst} failed rc={rc}", flush=True)
