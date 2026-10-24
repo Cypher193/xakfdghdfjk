@@ -20,7 +20,11 @@ repos = [("nvidia/Cosmos-Predict2.5-2B", "diffusers/base/post-trained"),
          ("Wan-AI/Wan2.1-VACE-1.3B-diffusers", None),
          ("Wan-AI/Wan2.2-TI2V-5B-Diffusers", None),
          ("facebook/sam2.1-hiera-large", None)]
-for repo, rev in repos[-1:] if os.environ.get("SCREEN_TIER") else repos:
+if os.environ.get("SCREEN_TIER"):
+    repos = repos[-1:]
+elif os.environ.get("LTX_JOB"):            # LTX plan pods: LTX + SAM2 only (26 GB), the disk is sized for that
+    repos = [repos[1], repos[-1]]
+for repo, rev in repos:
     print("downloading", repo, flush=True)
     snapshot_download(repo, revision=rev)
 EOF
@@ -29,5 +33,5 @@ python scripts/sync.py pull                     # renders, runs, results from ea
 python -m pilot.download
 mkdir -p data/logs
 pkill -f "scripts/sync.py push" || true
-nohup python scripts/sync.py push --every 900 > "data/logs/sync${SCREEN_TIER:+_screen_$SCREEN_TIER}.log" 2>&1 &   # every 15 min
+nohup python scripts/sync.py push --every 900 > "data/logs/sync${SCREEN_TIER:+_screen_$SCREEN_TIER}${LTX_JOB:+_ltx_$LTX_JOB}.log" 2>&1 &   # every 15 min
 echo "Setup done. Background sync running (data/logs/sync.log). Before terminating a pod: python scripts/sync.py push"

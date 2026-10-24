@@ -181,11 +181,11 @@ def worker(a):
         print(f"WARNING: only {len(offers)} distinct machines for n={a.n}")
     if a.dry_run:
         for k, o in enumerate(offers[:a.n], 1):
-            print("\n" + " ".join(shlex.quote(c) for c in worker_create_cmd(o["id"], f"kvs-ltx-{k}of{a.n}", a, url)))
+            print("\n" + " ".join(shlex.quote(c) for c in worker_create_cmd(o["id"], f"kvs-ltx{a.job}-{k}of{a.n}", a, url)))
         return
     pool = iter(offers)
     for k in range(1, a.n + 1):
-        label, ok = f"kvs-ltx-{k}of{a.n}", False
+        label, ok = f"kvs-ltx{a.job}-{k}of{a.n}", False       # block "ltxgen1": one block per job on the monitor
         for o in [x for _, x in zip(range(3), pool)]:
             r = vast(*worker_create_cmd(o["id"], label, a, url)[1:-1])
             iid = (r or {}).get("new_contract")
@@ -195,7 +195,7 @@ def worker(a):
             print(f"{label}: created #{iid} on offer {o['id']}, waiting ...")
             attach_ssh(iid)
             t0, inst = time.time(), {}
-            while time.time() - t0 < 600:
+            while time.time() - t0 < 1500:                 # the 20 GB pytorch image took > 10 min to pull on 3090 hosts
                 inst = vast("show", "instance", iid) or {}
                 inst = inst.get("instances", inst) if isinstance(inst, dict) else {}
                 if inst.get("actual_status") in ("running", "exited", "offline"):
