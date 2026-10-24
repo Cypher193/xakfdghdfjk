@@ -180,7 +180,8 @@ def main():
     scorer = subprocess.Popen([PY, "-m", "pilot.score", "--loop", "300", "--until-file", str(done_flag),
                                *score_args(a.plan, a.tier)],
                               stdout=open(f"data/logs/score{TAG}.log", "a"), stderr=subprocess.STDOUT)
-    state = dict(budget_h=a.budget_h, steps={})
+    state = dict(budget_h=a.budget_h, clips_total=sum(s.get("clips", 0) for s in plan), steps={})
+    log(f"plan: {len(plan)} steps, {state['clips_total']} clips", state)
     for step in plan:
         if step.get("out") and all(len(list(Path(o).glob("*/meta.json"))) >= step["clips"] for o in step["out"]):
             state["steps"][step["name"]] = dict(status="done earlier")

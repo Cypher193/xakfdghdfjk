@@ -93,3 +93,9 @@ Setup, guardrail check, external venvs if the tier needs them, `run_pilot.py --p
   probe results only relative to the mean, VAE and control-task baselines.
 
 Not yet written: random-init probe baseline, automatic gates report (G1-G10 are read from results/ by hand for now).
+
+## Run monitor and vast.ai launcher
+
+`docs/vast_plan.md` (full run on vast.ai: live quote `scripts/vast_quote.py`, waves, shards) and `docs/monitor_design.md`
+(phone-reachable run monitor). `scripts/vast_launch.py monitor` creates the monitor instance; every pod's `guard.py`
+heartbeats to `MONITOR_URL`; `scripts/monitor.py` serves the page and reaps dead instances (`--selftest` checks it).
