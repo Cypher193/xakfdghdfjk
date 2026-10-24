@@ -44,6 +44,13 @@ def vast(*args):
         sys.exit(f"vastai {args[0]} {args[1]}: unparseable output: {(out or r.stderr)[:300]}")
 
 
+def attach_ssh(iid):
+    """Team accounts cannot hold account-level SSH keys (400 "only in personal context"): attach this laptop's key per instance."""
+    pub = Path.home() / ".ssh/id_ed25519.pub"
+    if pub.exists():
+        vast("attach", "ssh", iid, pub.read_text().strip())
+
+
 def cheapest(n=3):
     return (vast("search", "offers", QUERY, "-o", "dph_total") or [])[:n]
 
@@ -114,6 +121,7 @@ def monitor(a):
             print(f"offer {o['id']}: create failed: {r}")
             continue
         print(f"created #{iid} on offer {o['id']}, waiting ...")
+        attach_ssh(iid)
         url = wait_up(iid, a, token)
         if url:
             print(f"\nmonitor #{iid}: {url}")
