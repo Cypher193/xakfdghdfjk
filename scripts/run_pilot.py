@@ -33,13 +33,20 @@ EST = {"vace13": 284, "cosmos2b": 240, "ltx2b": 27, "cosmos14b": 700, "p7_ltx2b"
 LOAD_S = 150                                       # model load per step
 
 
+def n_scenes(exp):
+    """Scene count of an experiment from the data files, without importing pilot (guard.py and sync.py import this
+    module from scripts/, where pilot is not on sys.path, and before the data is pulled: then 7, the pilot's default)."""
+    root = Path(__file__).resolve().parents[1]
+    scenes = yaml.safe_load(open(root / "configs/pilot.yaml"))["experiments"][exp]["scenes"]
+    if scenes == "real":
+        m = root / "data/real/manifest.json"
+        return len(json.loads(m.read_text(encoding="utf-8"))) if m.exists() else 7
+    return len(list((root / f"data/scenes/{scenes}").glob("*.json"))) or 7
+
+
 def gen(model, exp, limit, seeds, ext=None):
     """ext: external repo (scripts/ext/setup_ext.sh): export job files, then run its runner in its own venv."""
-    if limit is None:                              # all scenes (real: manifest entries); imported late, torch is heavy
-        from pilot.generate import scene_list
-        n = len(scene_list(yaml.safe_load(open("configs/pilot.yaml")), exp)) * len(seeds)
-    else:
-        n = limit * len(seeds)
+    n = (limit or n_scenes(exp)) * len(seeds)
     c = [PY, "-m", "pilot.generate", "--model", model, "--exp", exp, "--seeds", *map(str, seeds)] \
         + (["--limit", str(limit)] if limit else [])
     if ext:
