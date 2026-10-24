@@ -2,6 +2,7 @@
 
     python scripts/vast_launch.py monitor --dry-run   # show the 3 cheapest offers + the exact create command, create nothing
     python scripts/vast_launch.py monitor             # create kvs-monitor, wait until it answers, print http://IP:PORT/?t=TOKEN
+    python scripts/vast_launch.py worker JOB [--n 4] [--dry-run]   # GPU workers kvs-ltx-{k}of{n} running POD_SCRIPT JOB
     python scripts/vast_launch.py ls                  # kvs-* instances: status, GPU, $/h, IP, mapped port, minutes up
     python scripts/vast_launch.py destroy ID [-y]     # destroy one kvs-* instance (refuses other labels)
 
@@ -29,6 +30,10 @@ SRC = "https://raw.githubusercontent.com/Cypher193/xakfdghdfjk/main/scripts/moni
 ONSTART = ("pip install -q vastai; python -c \"import urllib.request as u;u.urlretrieve('{src}','/monitor.py')\" && "
            "{{ env | grep -E '^(MONITOR_TOKEN|MONITOR_VAST_KEY|MONITOR_NTFY)=' >> /etc/environment; "
            "cd / && nohup python /monitor.py --port {port} > /monitor.out 2>&1 & }}")
+TEMPLATE = "d1b2fe045f890349b734850a9d312072"
+POD_SCRIPT = "scripts/ltx_pod.sh"      # swap for scripts/full_pod.sh later
+REPO = "https://github.com/Cypher193/xakfdghdfjk.git"
+INSTANCES_JSON = Path(__file__).resolve().parent.parent / "data/logs/vast_instances.json"
 
 
 def vast(*args):
@@ -134,6 +139,84 @@ def monitor(a):
     sys.exit(1)
 
 
+def worker_offers(a):
+    q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
+         f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1")
+    seen, out = set(), []
+    for o in vast("search", "offers", q, "-o", "dph_total") or []:
+        if o["machine_id"] not in seen:          # one offer per host so workers never share a machine
+            seen.add(o["machine_id"])
+            out.append(o)
+    return out
+
+
+def worker_create_cmd(offer_id, label, a, url):
+    onstart = (f"cd /workspace && git clone {REPO} cvpr_vail && cd cvpr_vail && setsid nohup bash {POD_SCRIPT} "
+               f"{a.job} {a.budget_h} > /workspace/ltx.out 2>&1 < /dev/null &")
+    cmd = [VASTAI, "create", "instance", offer_id, "--template_hash", TEMPLATE, "--disk", a.disk, "--label", label]
+    if url:
+        cmd += ["--env", f"-e MONITOR_URL={url}"]
+    return [str(x) for x in cmd + ["--onstart-cmd", onstart, "--raw"]]
+
+
+def log_instance(rec):
+    try:
+        rows = json.loads(INSTANCES_JSON.read_text())
+    except (OSError, ValueError):
+        rows = []
+    INSTANCES_JSON.parent.mkdir(parents=True, exist_ok=True)
+    INSTANCES_JSON.write_text(json.dumps(rows + [rec], indent=1))
+
+
+def worker(a):
+    url = a.monitor_url or os.environ.get("MONITOR_URL")
+    if not url:
+        print("WARNING: no --monitor-url / MONITOR_URL, workers will not report to the monitor")
+    offers = worker_offers(a)
+    print(f"{len(offers)} distinct machines match; top:")
+    for o in offers[:max(5, a.n)]:
+        print(f"offer {o['id']}  m{o['machine_id']}  {o['gpu_name']}  ${o['dph_total']:.3f}/h  {o.get('geolocation')}  "
+              f"{o['inet_down']:.0f} Mb/s down  {o['disk_space']:.0f} GB disk  rel {o.get('reliability2', 0):.3f}")
+    if len(offers) < a.n:
+        print(f"WARNING: only {len(offers)} distinct machines for n={a.n}")
+    if a.dry_run:
+        for k, o in enumerate(offers[:a.n], 1):
+            print("\n" + " ".join(shlex.quote(c) for c in worker_create_cmd(o["id"], f"kvs-ltx-{k}of{a.n}", a, url)))
+        return
+    pool = iter(offers)
+    for k in range(1, a.n + 1):
+        label, ok = f"kvs-ltx-{k}of{a.n}", False
+        for o in [x for _, x in zip(range(3), pool)]:
+            r = vast(*worker_create_cmd(o["id"], label, a, url)[1:-1])
+            iid = (r or {}).get("new_contract")
+            if not iid:
+                print(f"offer {o['id']}: create failed: {r}")
+                continue
+            print(f"{label}: created #{iid} on offer {o['id']}, waiting ...")
+            attach_ssh(iid)
+            t0, inst = time.time(), {}
+            while time.time() - t0 < 600:
+                inst = vast("show", "instance", iid) or {}
+                inst = inst.get("instances", inst) if isinstance(inst, dict) else {}
+                if inst.get("actual_status") in ("running", "exited", "offline"):
+                    break
+                time.sleep(10)
+            if inst.get("actual_status") != "running":
+                print(f"#{iid} did not come up ({inst.get('actual_status')}), destroying")
+                vast("destroy", "instance", iid, "-y")
+                continue
+            hp = port_of(inst, 22)
+            print(f"{label}: #{iid} {inst.get('gpu_name')} {inst.get('geolocation')} ${inst.get('dph_total') or 0:.3f}/h\n"
+                  f"  ssh -p {inst.get('ssh_port')} root@{inst.get('ssh_host')}\n"
+                  f"  ssh -p {hp} root@{(inst.get('public_ipaddr') or '').strip()}")
+            log_instance({"iid": iid, "label": label, "job": a.job, "offer": o["id"], "dph": o["dph_total"],
+                          "created": time.strftime("%Y-%m-%dT%H:%M:%S")})
+            ok = True
+            break
+        if not ok:
+            print(f"{label}: no instance after 3 attempts")
+
+
 def ls(_):
     allx = instances()
     print(f"{len(allx)} instances on the account")
@@ -168,6 +251,17 @@ def main():
     m.add_argument("--image", default="python:3.11-slim")
     m.add_argument("--disk", type=int, default=10)
     m.set_defaults(f=monitor)
+    w = sub.add_parser("worker")
+    w.add_argument("job")
+    w.add_argument("--n", type=int, default=1)
+    w.add_argument("--gpu", default="RTX 3090")
+    w.add_argument("--vram", type=int, default=24)
+    w.add_argument("--ram", type=int, default=32)
+    w.add_argument("--disk", type=int, default=120)
+    w.add_argument("--budget-h", type=float, default=6)
+    w.add_argument("--monitor-url")
+    w.add_argument("--dry-run", action="store_true")
+    w.set_defaults(f=worker)
     sub.add_parser("ls").set_defaults(f=ls)
     d = sub.add_parser("destroy")
     d.add_argument("id", type=int)

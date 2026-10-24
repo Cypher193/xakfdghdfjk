@@ -2,6 +2,7 @@
 
     python scripts/run_pilot.py --budget-h 11.5        # after setup_runpod.sh (setup time is outside the budget)
     python scripts/run_pilot.py --plan screen --tier A --budget-h 10    # generator screen (scripts/screen_pod.sh)
+    python scripts/run_pilot.py --plan ltx --job gen1 --budget-h 6      # LTX-2B full plan job (scripts/ltx_pod.sh)
 
 Steps run in order; before each one the remaining budget is checked against its estimate (per-clip times are
 re-estimated from finished clips as they come in), and a step that does not fit is skipped and logged.
@@ -34,7 +35,11 @@ LOAD_S = 150                                       # model load per step
 
 def gen(model, exp, limit, seeds, ext=None):
     """ext: external repo (scripts/ext/setup_ext.sh): export job files, then run its runner in its own venv."""
-    n = (limit or 7) * len(seeds)
+    if limit is None:                              # all scenes (real: manifest entries); imported late, torch is heavy
+        from pilot.generate import scene_list
+        n = len(scene_list(yaml.safe_load(open("configs/pilot.yaml")), exp)) * len(seeds)
+    else:
+        n = limit * len(seeds)
     c = [PY, "-m", "pilot.generate", "--model", model, "--exp", exp, "--seeds", *map(str, seeds)] \
         + (["--limit", str(limit)] if limit else [])
     if ext:
@@ -116,8 +121,42 @@ def screen_plan(tier, skip=()):
     return plan
 
 
+# LTX-2B "full" plan: one job per pod (scripts/ltx_pod.sh). Run dirs each job pushes (sync.py imports them).
+LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
+            "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
+            "probe": ["runs/steer/ltx2b"]}
+LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
+
+
+def _ltx_jobs():
+    jobs = {"gen1": [gen("ltx2b", "b1", None, [0, 1, 2]), gen("ltx2b", "b1real", None, [0, 1])],
+            "gen2": [gen("ltx2b", "b2nl", None, [0, 1, 2]), gen("ltx2b", "b3", None, [0, 1, 2])],
+            "gen3": [gen("ltx2b", "b5", None, [0, 1, 2, 3, 4])],
+            "gen4": [gen("ltx2b", "bratio", None, [0, 1, 2]),
+                     dict(name="p7:ltx2b", kind="gen", model="p7_ltx2b", clips=30, out=LTX_RUNS["gen4"][1:],
+                          cmd=[PY, "-m", "pilot.invert", "--model", "ltx2b", "--scenes", "30"])]}
+    probe = [cmd(f"probe:{t}:{'+'.join(e)}:{pool}",
+                 ["-m", "pilot.probe", "--model", "ltx2b", "--exps", *e, "--target", t, "--pool", pool], 300)
+             for e, t in ((["b1"], "hspeed"), (["b1", "b5"], "g"), (["b1", "b5"], "e")) for pool in ("obj", "all")]
+    probe += [cmd(f"probe:{m}", ["-m", "pilot.probe", "--model", m, "--exps", "p7", "--target", "hspeed"], 300)
+              for m in ("ltx2b_noise", "ltx2b_inv")]
+    probe.append(dict(name="steer:ltx2b", kind="gen", model="ltx2b", clips=120, out=["runs/steer/ltx2b"],
+                      cmd=[PY, "-m", "pilot.steer", "--model", "ltx2b", "--scenes", "30", "--alphas",
+                           "-2", "-1", "1", "2"]))              # needs results/p6_ltx2b_hspeed_obj.csv: after the probes
+    jobs["probe"] = probe
+    for j, steps in jobs.items():       # p7 clips live in model dirs ltx2b_noise / ltx2b_inv, so gen4 scores those too
+        models = ["ltx2b", "ltx2b_noise", "ltx2b_inv"] if j == "gen4" else ["ltx2b"]
+        steps.append(cmd(f"score:{j}", ["-m", "pilot.score", "--models", *models, "--table", f"results/show_ltx_{j}.csv"],
+                         60 * sum(s.get("clips", 0) for s in steps)))   # ~60 s per clip generated in the job
+    return jobs
+
+
+LTX_JOBS = _ltx_jobs()
+
+
 def tag(plan, tier):
-    return "" if plan == "main" else f"_screen_{tier}"
+    """tier: the screen tier, or the job name for plan ltx."""
+    return "" if plan == "main" else f"_ltx_{tier}" if plan == "ltx" else f"_screen_{tier}"
 
 
 def score_args(plan, tier):
@@ -161,15 +200,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--budget-h", type=float, default=11.5)
     ap.add_argument("--reserve-h", type=float, default=0.4, help="kept for final scoring, probes and push")
-    ap.add_argument("--plan", choices=["main", "screen"], default="main")
+    ap.add_argument("--plan", choices=["main", "screen", "ltx"], default="main")
+    ap.add_argument("--job", choices=list(LTX_JOBS), help="plan ltx: which job (scripts/ltx_pod.sh)")
     ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all", help="screen: A, B or both")
     ap.add_argument("--skip", nargs="*", default=[], help="screen: models to leave out")
     a = ap.parse_args()
     if not (os.environ.get("RUNPOD_POD_ID") or os.environ.get("CONTAINER_ID")):   # pushes to the shared HF dataset:
         sys.exit("run on a RunPod pod or vast.ai instance (RUNPOD_POD_ID / CONTAINER_ID unset)")   # never from a laptop
     global TAG
-    TAG = tag(a.plan, a.tier)
-    plan = PLAN if a.plan == "main" else screen_plan(a.tier, a.skip)
+    if a.plan == "ltx" and not a.job:
+        sys.exit("--plan ltx needs --job")
+    TAG = tag(a.plan, a.job if a.plan == "ltx" else a.tier)
+    plan = PLAN if a.plan == "main" else LTX_JOBS[a.job] if a.plan == "ltx" else screen_plan(a.tier, a.skip)
     Path("data/logs").mkdir(parents=True, exist_ok=True)
     start_file = Path(f"data/logs/pilot_start{TAG}")
     if not start_file.exists():
@@ -177,9 +219,9 @@ def main():
     start = float(start_file.read_text())
     done_flag = Path(f"data/logs/pilot_gen_done{TAG}")
     done_flag.unlink(missing_ok=True)
-    scorer = subprocess.Popen([PY, "-m", "pilot.score", "--loop", "300", "--until-file", str(done_flag),
-                               *score_args(a.plan, a.tier)],
-                              stdout=open(f"data/logs/score{TAG}.log", "a"), stderr=subprocess.STDOUT)
+    scorer = None if a.plan == "ltx" else subprocess.Popen(   # ltx: LTX + SAM2 do not fit a 24 GB card; the job's last step scores
+        [PY, "-m", "pilot.score", "--loop", "300", "--until-file", str(done_flag), *score_args(a.plan, a.tier)],
+        stdout=open(f"data/logs/score{TAG}.log", "a"), stderr=subprocess.STDOUT)
     state = dict(budget_h=a.budget_h, clips_total=sum(s.get("clips", 0) for s in plan), steps={})
     log(f"plan: {len(plan)} steps, {state['clips_total']} clips", state)
     for step in plan:
@@ -208,7 +250,8 @@ def main():
         state["used_h"] = round((time.time() - start) / 3600, 2)
         log(f"END {step['name']}: rc={rc}, {dt:.2f} h (used {state['used_h']} h)", state)
     done_flag.write_text("done")
-    scorer.wait()
+    if scorer:
+        scorer.wait()
     for model, exps, target in FINAL_PROBES if a.plan == "main" else []:
         r = subprocess.run([PY, "-m", "pilot.probe", "--model", model, "--exps", *exps, "--target", target],
                            capture_output=True, text=True)

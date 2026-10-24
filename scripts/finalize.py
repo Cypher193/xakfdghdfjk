@@ -2,6 +2,7 @@
 
     python scripts/finalize.py --stop-at 2026-10-18T00:40Z --hard-at 2026-10-18T01:25Z
     python scripts/finalize.py --stop-at ... --hard-at ... --plan screen --tier A      # screen pod (screen_pod.sh)
+    python scripts/finalize.py --stop-at ... --hard-at ... --plan ltx --job gen1         # LTX job pod (ltx_pod.sh)
 
 1. Waits until --stop-at, or until the pilot finishes by itself, whichever is first.
 2. Stops the orchestrator and every worker (generation, scoring, probes, timing).
@@ -70,7 +71,7 @@ def local_files():
     out = []
     for p in ROOT.rglob("*"):
         rel = p.relative_to(ROOT).as_posix()
-        if p.is_file() and not rel.startswith(".cache") and any(fnmatch.fnmatch(rel, pat) for pat in sync.PATTERNS) \
+        if p.is_file() and not rel.startswith(".cache") and any(fnmatch.fnmatch(rel, pat) for pat in sync.PUSH_PATTERNS) \
                 and not any(fnmatch.fnmatch(rel, pat) for pat in sync.IGNORE):
             out.append(rel)
     return out
@@ -117,14 +118,15 @@ def main():
     ap.add_argument("--stop-at", required=True, help="UTC, e.g. 2026-10-18T00:40Z")
     ap.add_argument("--hard-at", required=True, help="UTC; the pod is stopped by then whatever happens")
     ap.add_argument("--no-stop-pod", action="store_true", help="testing: do everything except stopping the pod")
-    ap.add_argument("--plan", choices=["main", "screen"], default="main")
+    ap.add_argument("--plan", choices=["main", "screen", "ltx"], default="main")
+    ap.add_argument("--job", help="plan ltx: gen1..gen4 or probe")
     ap.add_argument("--tier", choices=["A", "B", "C", "all"], default="all")
     a = ap.parse_args()
     if not (os.environ.get("RUNPOD_POD_ID") or os.environ.get("CONTAINER_ID")):   # pushes to the shared HF dataset:
         sys.exit("run on a RunPod pod or vast.ai instance (RUNPOD_POD_ID / CONTAINER_ID unset)")   # never from a laptop
     from run_pilot import FINAL_PROBES, score_args, tag      # same probe list and scorer scope as the orchestrator
     global LOG
-    t = tag(a.plan, a.tier)
+    t = tag(a.plan, a.job if a.plan == "ltx" else a.tier)
     LOG = ROOT / f"data/logs/finalize{t}.log"
     stop, hard = ts(a.stop_at), ts(a.hard_at)
     log(f"armed: stop work at {a.stop_at}, pod stopped by {a.hard_at}")
@@ -135,7 +137,8 @@ def main():
         subprocess.run(["pkill", "-f", w])
     time.sleep(10)
     run([PY, "scripts/sync.py", "push"], min(900, left(hard) - 300), "upload 1")
-    run([PY, "-m", "pilot.score", *score_args(a.plan, a.tier)], min(900, left(hard) - 900), "final scoring pass")
+    if a.plan != "ltx":                                       # ltx: the job's last step scores (a stopped job: score by hand)
+        run([PY, "-m", "pilot.score", *score_args(a.plan, a.tier)], min(900, left(hard) - 900), "final scoring pass")
     run([PY, "scripts/sync.py", "push"], min(600, left(hard) - 300), "upload 2")
     for model, exps, target in FINAL_PROBES if a.plan == "main" else []:
         run([PY, "-m", "pilot.probe", "--model", model, "--exps", *exps, "--target", target],

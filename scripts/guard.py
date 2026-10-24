@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ALIVE = ["setup_runpod.sh", "setup_ext.sh", "screen_pod.sh", "run_pilot.py", "finalize.py", "restart2.sh"]
+ALIVE = ["setup_runpod.sh", "setup_ext.sh", "screen_pod.sh", "ltx_pod.sh", "run_pilot.py", "finalize.py", "restart2.sh"]
 CG = "/sys/fs/cgroup/"
 
 

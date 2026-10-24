@@ -246,6 +246,7 @@ render:
 experiments:
   b1:      {scenes: kmain, text: caption}
   b2nl:    {scenes: kmain, text: b2nl, video: false}
+  b3:      {scenes: kmain, text: b2nl}      # the b2nl description (plain words) WITH the input video
   b5:      {scenes: kgrav, text: caption}
   bratio:  {scenes: kratio, text: caption}
   b1real:  {scenes: real, text: caption, seeds: [0, 1]}
