@@ -142,8 +142,8 @@ def monitor(a):
 def worker_offers(a):
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
-         "geolocation!=CN")                     # CN hosts: HF downloads at ~150 s per file, real clips may not download
-    seen, out = set(), []
+         + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))   # CN hosts: HF downloads at ~150 s per file
+    seen, out = set(a.not_machine), []
     for o in vast("search", "offers", q, "-o", "dph_total") or []:
         if o["machine_id"] not in seen:          # one offer per host so workers never share a machine
             seen.add(o["machine_id"])
@@ -259,6 +259,8 @@ def main():
     w.add_argument("--vram", type=int, default=24)
     w.add_argument("--ram", type=int, default=32)
     w.add_argument("--disk", type=int, default=120)
+    w.add_argument("--geo", help="2-letter country, e.g. US (default: anywhere but CN)")
+    w.add_argument("--not-machine", type=int, nargs="*", default=[], help="machine_ids to skip (e.g. a host that never finished pulling the image)")
     w.add_argument("--budget-h", type=float, default=6)
     w.add_argument("--monitor-url")
     w.add_argument("--dry-run", action="store_true")
