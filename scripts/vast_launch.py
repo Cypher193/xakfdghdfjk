@@ -141,7 +141,8 @@ def monitor(a):
 
 def worker_offers(a):
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
-         f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1")
+         f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
+         "geolocation!=CN")                     # CN hosts: HF downloads at ~150 s per file, real clips may not download
     seen, out = set(), []
     for o in vast("search", "offers", q, "-o", "dph_total") or []:
         if o["machine_id"] not in seen:          # one offer per host so workers never share a machine
