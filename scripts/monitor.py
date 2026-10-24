@@ -11,6 +11,7 @@ import argparse
 import hmac
 import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -121,14 +122,16 @@ def stale_ref(r, ts, started, stale_s):
 
 def state(app):
     now = time.time()
-    st = classify(dict(app.vast), latest_beats(app), now)
+    st = classify(dict(app.vast), latest_beats(app), now, bool(app.reaper["last_ok"]))
     kills = app.q("SELECT ts, inst, label, line FROM events WHERE line LIKE 'KILL %' AND ts > ? ORDER BY ts DESC",
                   (now - 86400,))
     return dict(st, now=now, reaper=app.reaper, kills=[dict(zip(("ts", "inst", "label", "line"), k)) for k in kills])
 
 
-def classify(vast, beats, now):
-    """Pure: vast rows {inst: row} + latest beats {inst: (beat, ts)} -> totals, monitor, blocks."""
+def classify(vast, beats, now, reaper_ok=False):
+    """Pure: vast rows {inst: row} + latest beats {inst: (beat, ts)} -> totals, monitor, blocks.
+
+    reaper_ok: the reaper has seen vast; a beat-only instance is then "gone" (finished or destroyed), not dead."""
     blocks, mon, gpus = {}, None, {}
     tot = {"running": 0, "loading": 0, "dead": 0, "dph_now": 0.0, "spent": 0.0, "clips_done": 0, "clips_total": 0}
     for inst in sorted(set(beats) | set(vast)):
@@ -144,12 +147,17 @@ def classify(vast, beats, now):
         if v and not s["label"].startswith("kvs-"):  # foreign instance on the account: listed, never counted
             s.update(dot="grey", status="not ours")
             continue
+        gone = reaper_ok and v is None and b is not None
+        if gone:
+            s.update(dot="grey", status="gone", eta_h=None)
         blk["spent"] += s["spent"] or 0
         if s["clips_total"]:
             blk["clips_done"] += s["clips_done"] or 0
             blk["clips_total"] += s["clips_total"]
         if s["eta_h"] is not None:
             blk["eta_h"] = max(blk["eta_h"] or 0, s["eta_h"])
+        if gone:
+            continue
         tot["running" if s["dot"] in ("green", "yellow") else "loading" if s["dot"] == "loading" else "dead"] += 1
         if s["actual_status"] and s["actual_status"] not in ("exited", "offline"):  # vast bills loading too
             tot["dph_now"] += s["dph"] or 0
@@ -182,7 +190,7 @@ def events_list(app, level="", block="", limit=200):
     out = []
     for ts, inst, label, lv, line in app.q("SELECT ts, inst, label, level, line FROM events ORDER BY ts DESC, id DESC"):
         if LEVELS.index(lv) >= mn and (not block or parse_label(label)[0] == block):
-            out.append({"ts": ts, "inst": inst, "label": label, "level": lv, "line": line})
+            out.append({"ts": ts, "inst": inst, "label": label, "block": parse_label(label)[0], "level": lv, "line": line})
             if len(out) >= limit:
                 break
     return out
@@ -405,70 +413,208 @@ def make_handler(app):
 
 # --- page -------------------------------------------------------------------------------------------------------
 
-PAGE = r"""<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+PAGE = r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>kvs monitor</title><style>
-:root{--bg:#fff;--fg:#111;--mut:#666;--line:#ddd;--card:#f6f6f6}
-@media(prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#999;--line:#333;--card:#1b1b1b}}
-body{margin:0 auto;max-width:640px;padding:8px 16px 40px;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin:10px 0}
-.row{padding:6px 0;border-top:1px solid var(--line);cursor:pointer;overflow-wrap:anywhere}.mut{color:var(--mut)}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;background:#888}
-.green{background:#2a2}.yellow{background:#ca0}.red{background:#d33}.loading{background:none;border:1px solid #888;box-sizing:border-box}
-#ban{background:#d33;color:#fff;padding:8px;border-radius:8px;margin:8px 0}
-pre{overflow:auto;max-height:260px;font-size:11px;background:var(--card);padding:6px}
-progress{width:70px;vertical-align:middle}svg{vertical-align:middle;margin-left:6px}
-.error{color:#d33}.warn{color:#b80}button,select{font:inherit;padding:6px}
+:root{--bg:#f3f4f6;--sf:#fff;--bd:#d4d8de;--tx:#16181d;--mu:#596070;--gn:#17803a;--ye:#8a5d00;--rd:#c42b1c;--gy:#636b78;--ac:#2b5fd9;--dg:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1013;--sf:#181b20;--bd:#2d323b;--tx:#e7e9ec;--mu:#9ba2ae;--gn:#4fc46d;--ye:#e2b33c;--rd:#ff6e64;--gy:#8f96a3;--ac:#7ea6ff;--dg:#c4291c}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-variant-numeric:tabular-nums}
+body.lock{overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+header{position:sticky;top:0;z-index:5;height:48px;background:var(--sf);border-bottom:1px solid var(--bd)}
+.in{max-width:760px;margin:0 auto;padding:0 16px}
+header .in{height:100%;display:flex;align-items:center;gap:8px}
+header b{font-size:14px;font-weight:600}
+#upd{margin-left:auto}
+.chip{border:1px solid currentColor;border-radius:12px;padding:0 8px;font-size:12px;white-space:nowrap}
+main{padding-top:16px;padding-bottom:24px}
+#pg{display:flex;flex-direction:column;gap:24px}
+.s12{font-size:12px}
+.mu{color:var(--mu)}
+.c-gn{color:var(--gn)}.c-ye{color:var(--ye)}.c-rd{color:var(--rd)}.c-gy{color:var(--gy)}
+#ban{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+#ban:empty{display:none}
+.bn{display:block;width:100%;text-align:left;background:var(--dg);color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px}
+div.bn{cursor:default}
+.yb{background:var(--sf);border:1px solid var(--bd);border-left:4px solid var(--ye);border-radius:8px;padding:8px 12px}
+#tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:8px 12px}
+.tile .val{font-size:20px;font-weight:600;line-height:1.3}
+.tile .s12:last-child{min-height:16px}
+#blocks{display:grid;gap:12px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px}
+.bh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.bh b{font-size:14px;font-weight:600}
+.bh .tot{margin-left:auto;font-weight:600}
+.l2{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px;font-size:12px;color:var(--mu)}
+.bar{flex:1;min-width:48px;height:6px;background:var(--bd);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ac)}
+.row{min-height:48px;padding:8px 0 8px 8px;border-top:1px solid var(--bd);border-left:3px solid transparent;cursor:pointer;margin-top:8px}
+.row[aria-current]{border-left-color:var(--ac)}
+.row.mu .l1 .stp{opacity:.8}
+.l1{display:flex;align-items:center;gap:8px}
+.l1 b{font-weight:600}
+.w{min-width:64px}
+.stp{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mu)}
+.dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--gy)}
+.dot.green{background:var(--gn)}.dot.yellow{background:var(--ye)}.dot.red{background:var(--rd)}
+.dot.loading{background:none;border:2px solid var(--gy)}
+.det{position:relative}
+.top{display:flex;align-items:center;gap:8px;min-height:40px;background:var(--sf);margin:0 0 8px}
+.top b{font-weight:600}
+.xb{margin-left:auto;width:40px;height:40px;border:0;background:none;font-size:24px;line-height:1}
+.det h3{margin:16px 0 4px;font-size:12px;font-weight:400;color:var(--mu)}
+.sps{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sps .net{grid-column:1/3}
+.sph{display:flex;justify-content:space-between;align-items:baseline}
+.sph b{font-size:14px;font-weight:600}
+.sps svg{display:block;width:100%;height:32px;color:var(--ac)}
+pre{margin:0;max-height:240px;overflow:auto;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.kb{display:block;width:100%;height:44px;margin-top:16px;border:0;border-radius:8px;background:var(--dg);color:#fff;font-weight:600}
+.kb:disabled{background:var(--gy);cursor:not-allowed}
+#bd{position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.45)}
+#evs h2{margin:0 0 8px;font-size:14px;font-weight:600}
+.chs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.ch{height:40px;padding:0 12px;border-radius:20px;border:1px solid var(--bd);background:var(--bg);color:var(--mu)}
+.ch[aria-pressed=true]{background:var(--sf);color:var(--tx);border:2px solid var(--ac)}
+.er{display:flex;gap:8px;padding:4px 0;font-size:12px}
+.lb{flex:none;width:3px;align-self:stretch;background:transparent}
+.er.error .lb{background:var(--rd)}.er.warn .lb{background:var(--ye)}
+.er time{flex:none;color:var(--mu)}
+.bdg{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--bd);border-radius:4px;padding:0 4px}
+.et{min-width:0;overflow-wrap:anywhere}
+#ft{font-size:12px;color:var(--mu)}
+@media(min-width:720px){#tiles{grid-template-columns:repeat(6,1fr)}#bd{display:none}}
+@media(max-width:719px){.det{position:fixed;left:0;right:0;bottom:0;height:80vh;overflow:auto;z-index:20;border-radius:12px 12px 0 0;border-bottom:0;padding:16px}
+.top{position:sticky;top:-16px;z-index:2;margin:-16px -16px 8px;padding:16px 16px 0}}
 </style></head><body>
-<h3 style="margin:8px 0">kvs monitor</h3><div id=ban hidden></div><div id=hdr></div><div id=det></div><div id=blocks></div>
-<h4>Events</h4><select id=lv><option value="">all<option value=warn>warn+<option value=error>error</select>
-<select id=bk><option value="">all blocks</select><div id=ev></div>
+<header><div class=in><b>kvs monitor</b><span id=upd class="s12 mu"></span><span id=chip class=chip></span></div></header>
+<main class=in><div id=ban></div><div id=pg><div id=tiles></div><div id=blocks></div>
+<section id=evs><h2>Events</h2><div id=chips></div><div id=ev></div></section><div id=ft></div></div></main>
+<div id=bd hidden></div><div id=det class="card det" hidden></div>
 <script>
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const f=(v,d=1)=>v==null?'—':(+v).toFixed(d), $=id=>document.getElementById(id);
-const hm=ts=>new Date(ts*1000).toLocaleTimeString([],{hour12:false});
-let open=null, S=null;
-async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw r.status;return r.json()}
+const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const f=(v,d=1)=>v==null?'—':(+v).toFixed(d),mq=matchMedia('(min-width:720px)');
+const eta=h=>h==null?'—':h>=48?f(h/24)+' d':f(h)+' h',ago=s=>s<60?Math.round(s)+' s':Math.round(s/60)+' min';
+const upt=m=>m==null?'—':m<60?Math.round(m)+' min':f(m/60,m<600?1:0)+' h',hm=ts=>new Date(ts*1e3).toTimeString().slice(0,5);
+let S,D,open=null,ok=0,err=null,dErr=null,kmsg='',lv='',bk='',EV=[];
+async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw{s:r.status,b:await r.text().catch(()=>'')};return r.json()}
+const msg=e=>e&&e.s==401?'Not signed in: open the link with ?t=TOKEN once.':`Monitor unreachable (${e&&e.s?'HTTP '+e.s:'network'}). Retrying every 15 s.`;
+const flat=()=>S?S.blocks.flatMap(b=>b.shards):[],ld=s=>s.age_s==null&&s.dot!='grey';
+function word(s){
+  if(s.status=='not ours')return['not ours','gy'];
+  if(s.step=='done')return['done','gn'];
+  if(s.dot=='grey')return[s.status=='gone'?'gone':s.actual_status||'gone','gy'];
+  if(ld(s))return['loading',{red:'rd',yellow:'ye'}[s.dot]||'gy'];
+  return{green:['live','gn'],yellow:['late','ye'],red:['stale','rd']}[s.dot]}
 function row(s){
-  const bar=s.clips_total?`<progress value=${s.clips_done||0} max=${s.clips_total}></progress> ${s.clips_done??'?'}/${s.clips_total}`:`${s.clips_done??'?'}/?`;
-  const body=s.dot=='loading'||s.status=='not ours'||s.status=='loading'&&s.age_s==null
-    ?`<span class=mut>${esc(s.status)} ·${esc(s.actual_status)} · ${f(s.up_min,0)} min</span>`
-    :`${bar} <span class=mut>${esc(s.gpu)} · ${esc(s.host)} · ${f(s.gpu_util,0)}% gpu · ${f(s.vram_gb,0)}/${f(s.vram_total_gb,0)} GB · ${f(s.used_h)}/${f(s.budget_h,0)} h · $${f(s.spent,2)} · ${esc(s.step)} · eta ${f(s.eta_h)} h</span>`;
-  return `<div class=row data-i=${s.inst}><span class="dot ${s.dot}"></span><b>${esc(s.shard)}</b> ${body}</div>`}
+  const [w,c]=word(s),l=ld(s),no=s.status=='not ours',T=s.clips_total,full=s.step=='done';
+  let stp=no?'':l?s.actual_status:s.step;
+  if(!l&&!no&&s.status!='running'&&s.status!='gone')stp=s.status+(s.step?' '+s.step:'');
+  const l2=l?`${f(s.up_min,0)} min since start · $${f(s.dph,2)}/h`:no?`${esc(s.gpu)} · $${f(s.dph,2)}/h`
+    :(T?`<span class=bar><i style="width:${full?100:Math.min(100,100*(s.clips_done||0)/T)}%${full?';background:var(--gn)':''}"></i></span>`:'')
+    +`<span>${s.clips_done??'?'}/${T||'?'}</span><span>${f(s.gpu_util,0)}%</span><span>${f(s.vram_gb,0)}/${f(s.vram_total_gb,0)}G</span><span>${f(s.used_h)}/${f(s.budget_h,0)}h</span><span>$${f(s.spent,2)}</span>`;
+  return `<div class="row${no?' mu':''}" role=button tabindex=0 data-i=${s.inst}${s.inst===open?' aria-current=true':''}><div class=l1><i class="dot ${l&&s.dot=='loading'?'loading':s.dot}"></i><span class="w c-${c}">${esc(w)}</span><b>${esc(s.shard)}</b><span class=stp>${esc(stp)}</span><span class="s12 mu">${l||no||s.dot=='grey'?'':eta(s.eta_h)}</span></div><div class=l2>${l2}</div></div>`}
+function card(b){
+  const n={},T=b.clips_total;
+  b.shards.forEach(s=>{if(s.status=='not ours'||s.dot=='grey')return;const k=ld(s)?'loading':{green:'live',yellow:'late',red:'stale'}[s.dot];n[k]=(n[k]||0)+1});
+  const cn=['live','late','stale','loading'].filter(k=>n[k]).map(k=>`<span class="${k=='stale'?'c-rd':''}">${k} ${n[k]}</span>`).join(' · ');
+  const sh=b.shards.slice().sort((a,b)=>(parseInt(a.shard)-parseInt(b.shard))||a.shard.localeCompare(b.shard));
+  return `<section class=card><div class=bh><b>${esc(b.block)}</b><span class="s12 mu">${cn}</span><span class=tot>$${f(b.spent,2)}</span></div>
+  <div class=l2><span class=bar><i style="width:${T?100*b.clips_done/T:0}%"></i></span><span>${b.clips_done}/${T}</span><span>eta ${eta(b.eta_h)}</span></div>${sh.map(row).join('')}</section>`}
+function tiles(){
+  const t=S.totals,late=flat().filter(s=>s.dot=='yellow'&&!ld(s)).length;
+  const T=(l,v,sub='',c='')=>`<div class=tile><div class="s12 mu ${c}">${l}</div><div class="val ${c}">${v}</div><div class=s12>${sub}</div></div>`;
+  return T('Running',t.running,(t.loading?`<span class=mu>+${t.loading} loading</span> `:'')+(late?`<span class=c-ye>${late} late</span>`:''))
+    +T('Dead',t.dead,'',t.dead?'c-rd':'')+T('$/h now','$'+f(t.dph_now,2))+T('Spent','$'+f(t.spent,t.spent>=100?0:2))
+    +T('Clips',t.clips_total?Math.round(100*t.clips_done/t.clips_total)+' %':'—',t.clips_total?t.clips_done+'/'+t.clips_total:'')+T('ETA',eta(t.eta_h))}
+function ban(){
+  let h=err?`<div class=bn>${esc(msg(err))}</div>`:'';
+  if(!S)return h;
+  const red=flat().filter(s=>s.dot=='red'),b=(i,t)=>`<button class=bn data-i=${i}>${t}</button>`;
+  red.slice(0,3).forEach(s=>h+=b(s.inst,`#${s.inst} ${esc(s.block)} ${esc(s.shard)} · ${ld(s)?'loading '+f(s.up_min,0):'no beat '+Math.round(s.age_s/60)} min`));
+  if(red.length>3)h+=`<div class=bn>+${red.length-3} more</div>`;
+  S.kills.filter(k=>k.ts>S.now-3600).forEach(k=>h+=b(k.inst,`${esc(k.line)} · ${ago(S.now-k.ts)} ago`));
+  return h+(S.reaper.last_err?`<div class=yb>reaper: ${esc(S.reaper.last_err)}</div>`:'')}
+function chip(){
+  const r=S.reaper;
+  return!r.enabled?['off','gy']:r.last_err?['error','rd']:!r.last_ok||S.now-r.last_ok>180?['lagging','ye']:r.dry_run?['dry-run','ye']:['on','gn']}
+function foot(){
+  const m=S.monitor,g=Object.entries(S.totals.gpus).map(([k,n])=>n+'×'+k).join(', ');
+  return(m.inst?`monitor #${m.inst} · ${esc(m.ip)} · $${f(m.dph,2)}/h · up ${upt(m.up_min)}`:'monitor not in vast list')+(g?' · GPUs '+esc(g):'')}
+function snap(){const d=$('det'),p=d.querySelector('pre');return{st:d.scrollTop,ps:p&&p.scrollTop,bot:!p||p.scrollHeight-p.scrollTop-p.clientHeight<4}}
+function apply(z){const d=$('det'),p=d.querySelector('pre');if(p)p.scrollTop=z.bot?p.scrollHeight:z.ps;d.scrollTop=z.st}
+function place(){
+  const d=$('det'),o=open!=null,wide=mq.matches;
+  d.hidden=!o;$('bd').hidden=!o||wide;document.body.classList.toggle('lock',o&&!wide);
+  if(o&&wide){const r=document.querySelector(`.row[data-i="${open}"]`),c=r&&r.closest('.card');c?c.after(d):document.body.append(d)}}
 function render(){
-  const t=S.totals, gp=Object.entries(t.gpus).map(([k,n])=>n+'×'+k).join(', ');
-  $('hdr').innerHTML=`<div>${t.running} running · ${t.loading} loading · ${t.dead} dead · $${f(t.dph_now,2)}/h · $${f(t.spent,2)} spent</div>
-   <div class=mut>${t.clips_done}/${t.clips_total} clips · slowest ETA ${f(t.eta_h)} h · ${esc(gp)}${S.monitor.inst?' · monitor $'+f(S.monitor.dph,2)+'/h':''}
-   · reaper ${S.reaper.enabled?(S.reaper.dry_run?'dry-run':'on'):'off'}${S.reaper.last_err?' ('+esc(S.reaper.last_err)+')':''}</div>`;
-  const red=S.blocks.some(b=>b.shards.some(s=>s.dot=='red')), k=S.kills.filter(k=>k.ts>S.now-3600);
-  $('ban').hidden=!(red||k.length);
-  $('ban').textContent=(red?'Instance without heartbeat. ':'')+k.map(k=>k.line).join(' | ');
-  $('blocks').innerHTML=S.blocks.map(b=>`<div class=card><b>${esc(b.block)}</b> <span class=mut>${b.clips_done}/${b.clips_total} · $${f(b.spent,2)} · eta ${f(b.eta_h)} h</span>${b.shards.map(row).join('')}</div>`).join('');
-  const sel=$('bk'), cur=sel.value;
-  sel.innerHTML='<option value="">all blocks'+S.blocks.map(b=>`<option>${esc(b.block)}`).join('');sel.value=cur;
-}
-function spark(n,a,max){
-  const m=max||Math.max(1,...a.filter(x=>x!=null));
-  const p=a.map((v,i)=>v==null?'':`${(i/Math.max(a.length-1,1)*120).toFixed(1)},${(24-24*v/m).toFixed(1)}`).filter(Boolean).join(' ');
-  return `<div>${n} <b>${f(a[a.length-1])}</b><svg viewBox="0 0 120 24" width=120 height=24><polyline fill=none stroke=currentColor points="${p}"/></svg></div>`}
-async function detail(){
-  if(open==null){$('det').innerHTML='';return}
-  const d=await api('/api/inst/'+open), s=d.series, l=d.latest;
-  $('det').innerHTML=`<div class=card><b>${esc(d.label)}</b> #${d.inst} <button id=x>close</button>
-   ${spark('gpu %',s.gpu_util,100)}${spark('vram GB',s.vram_gb,l.vram_total_gb)}${spark('cpu %',s.cpu_pct,100)}
-   ${spark('ram GB',s.ram_gb,l.ram_total_gb)}${spark('net Mb/s',s.net_mbps)}
-   <pre>${esc(d.tail)}</pre><pre>${d.events.map(e=>hm(e.ts)+' '+esc(e.line)).join('\n')}</pre>
-   <button id=k>kill instance</button></div>`;
-  $('x').onclick=()=>{open=null;detail()};
-  $('k').onclick=async()=>{if(confirm('Destroy '+d.label+' #'+d.inst+'?')){await api('/api/kill/'+d.inst,{method:'POST'});poll()}};
-}
-async function events(){
-  const e=await api(`/api/events?level=${$('lv').value}&block=${encodeURIComponent($('bk').value)}`);
-  $('ev').innerHTML=e.map(e=>`<div class="${e.level}">${hm(e.ts)} <span class=mut>${esc(e.label)}</span> ${esc(e.line)}</div>`).join('');
-}
-async function poll(){try{S=await api('/api/state');render();events()}catch(e){$('ban').hidden=false;$('ban').textContent='monitor unreachable '+e}}
-$('blocks').onclick=e=>{const r=e.target.closest('.row');if(r){open=+r.dataset.i;detail();$('det').scrollIntoView()}};
-$('lv').onchange=$('bk').onchange=events;
-poll();setInterval(poll,15000);setInterval(detail,30000);
+  const z=snap();document.body.append($('det'));
+  $('ban').innerHTML=ban();$('pg').style.opacity=err?.55:1;
+  if(S){
+    const [t,c]=chip();$('chip').textContent='reaper '+t;$('chip').className='chip c-'+c;
+    $('tiles').innerHTML=tiles();$('ft').innerHTML=foot();
+    const bl=S.blocks.slice().sort((a,b)=>(a.block=='other')-(b.block=='other')||a.block.localeCompare(b.block));
+    $('blocks').innerHTML=bl.length?bl.map(card).join(''):`<div class=card>No instances yet. Workers appear after their first beat (30 s) or the next vast listing (60 s).${S.reaper.enabled?'':'<br>Reaper off: only instances that send beats are listed.'}</div>`}
+  place();apply(z)}
+function tick(){
+  if(!ok){$('upd').textContent=err?'unreachable':'loading…';$('upd').className='s12 '+(err?'c-rd':'mu');return}
+  const s=(Date.now()-ok)/1e3;
+  $('upd').textContent=(err?'unreachable · last ok ':'updated ')+ago(s)+' ago';$('upd').className='s12 '+(err||s>45?'c-rd':'mu')}
+function spark(n,ts,a,max,u,d,cls){
+  const v=a.filter(x=>x!=null),m=max||Math.max(1,...v),t0=ts[0],span=(ts[ts.length-1]-t0)||1,segs=[];
+  let cur=null,lt=0;
+  a.forEach((x,i)=>{
+    if(x==null){cur=null;return}
+    if(!cur||ts[i]-lt>90){cur=[];segs.push(cur)}
+    lt=ts[i];cur.push(`${((ts[i]-t0)/span*120).toFixed(1)},${(1+22*(1-Math.min(x/m,1))).toFixed(1)}`)});
+  const pl=segs.map(s=>`<polyline points="${(s.length<2?[s[0],s[0]]:s).join(' ')}" fill=none stroke=currentColor stroke-width=1.5 stroke-linecap=round stroke-linejoin=round vector-effect=non-scaling-stroke />`).join('');
+  return `<div class=${cls||'sp'}><div class=sph><span class="s12 mu">${n}</span><b>${v.length?f(v[v.length-1],d)+u:'—'}</b></div><svg viewBox="0 0 120 24" preserveAspectRatio=none>${pl}</svg><div class="s12 mu">min ${v.length?f(Math.min(...v),d):'—'} · max ${v.length?f(Math.max(...v),d):'—'}</div></div>`}
+const evRow=(e,b)=>`<div class="er ${e.level}"><i class=lb></i><time class=s12 title="${esc(new Date(e.ts*1e3).toLocaleString())}">${hm(e.ts)}</time>${b?`<span class=bdg>${esc(e.block=='other'?e.label:e.block)}</span>`:''}<span class=et>${e.level!='info'?`<b class=c-${e.level=='error'?'rd':'ye'}>${e.level}</b> `:''}${esc(e.line.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d /,''))}</span></div>`;
+function dtl(){
+  if(open==null)return;
+  const z=snap(),d=$('det'),s=flat().find(x=>x.inst===open)||{},R=S?S.reaper:{};
+  let h=`<div class=top><b>${esc((D&&D.label)||s.label||'')}</b><span class=mu>#${open}</span><button id=x class=xb aria-label=Close>×</button></div>`;
+  h+=`<div class="s12 mu">${[s.gpu,s.host,s.dph!=null?'$'+f(s.dph,2)+'/h':'',s.up_min!=null?'up '+upt(s.up_min):''].filter(Boolean).map(esc).join(' · ')}</div>`;
+  if(dErr)h+=`<p class=c-rd>${esc(msg(dErr))}</p>`;
+  if(D){
+    const q=D.series,l=D.latest||{},t=q.ts;
+    h+=`<div class=sps>${spark('GPU',t,q.gpu_util,100,'%',0)}${spark('VRAM',t,q.vram_gb,l.vram_total_gb,' GB',1)}${spark('CPU',t,q.cpu_pct,100,'%',0)}${spark('RAM',t,q.ram_gb,l.ram_total_gb,' GB',1)}${spark('Net rx+tx',t,q.net_mbps,0,' Mb/s',1,'sp net')}</div>`;
+    h+=`<h3>Log tail</h3><pre>${esc(D.tail)}</pre><h3>Events</h3>${D.events.slice(0,50).map(e=>evRow(e,0)).join('')||'<span class="s12 mu">none</span>'}`}
+  if(S&&s.status!='not ours')h+=`<button id=k class=kb${R.enabled?'':' disabled'}>${R.enabled?'Destroy #'+open:'kill needs MONITOR_VAST_KEY'}</button>`;
+  if(kmsg)h+=`<p class=s12>${esc(kmsg)}</p>`;
+  d.innerHTML=h;apply(z)}
+async function loadD(){
+  const i=open;if(i==null)return;
+  try{const x=await api('/api/inst/'+i);if(i!==open)return;D=x;dErr=null}catch(e){dErr=e}
+  dtl()}
+function openI(i){open=i;D=null;dErr=null;kmsg='';render();dtl();loadD()}
+function close(){open=null;render()}
+async function kill(){
+  const lb=(D&&D.label)||'';
+  if(!confirm(`Destroy ${lb} (#${open})? Clips since the last HF sync (≤ 15 min) are lost.`))return;
+  try{const j=await api('/api/kill/'+open,{method:'POST'});kmsg=j.destroyed?'destroyed':j.dry_run?'dry-run: logged, not destroyed':'not destroyed'}catch(e){kmsg=e.b||msg(e)}
+  dtl();poll()}
+function evs(){
+  const ch=(g,v,l,cur)=>`<button class=ch data-g=${g} data-v="${esc(v)}" aria-pressed=${cur===v}>${esc(l)}</button>`;
+  $('chips').innerHTML=`<div class=chs>${[['','All'],['warn','Warn+'],['error','Error']].map(x=>ch('lv',x[0],x[1],lv)).join('')}</div><div class=chs>${ch('bk','','All blocks',bk)}${S?S.blocks.map(b=>ch('bk',b.block,b.block,bk)).join(''):''}</div>`;
+  $('ev').innerHTML=EV.length?EV.map(e=>evRow(e,1)).join(''):'<p class=mu>No events for this filter.</p>'}
+async function loadEv(){try{EV=await api(`/api/events?level=${lv}&block=${encodeURIComponent(bk)}&limit=100`)}catch(e){}evs()}
+async function poll(){
+  try{S=await api('/api/state');ok=Date.now();err=null}catch(e){err=e}
+  render();if(!err)await loadEv();tick()}
+document.onclick=e=>{
+  const t=e.target,r=t.closest('[data-i]'),c=t.closest('.ch');
+  if(t.closest('#x')||t.id=='bd')return close();
+  if(t.closest('#k'))return kill();
+  if(c){if(c.dataset.g=='lv')lv=c.dataset.v;else bk=c.dataset.v;return loadEv()}
+  if(r&&!t.closest('#det'))openI(+r.dataset.i)};
+document.onkeydown=e=>{
+  if(e.key=='Escape'&&open!=null)close();
+  else if((e.key=='Enter'||e.key==' ')&&e.target.matches('.row')){e.preventDefault();openI(+e.target.dataset.i)}};
+mq.onchange=()=>render();
+poll();setInterval(poll,15e3);setInterval(loadD,3e4);setInterval(tick,1e3);
 </script></body></html>"""
 
 
@@ -497,7 +643,7 @@ def selftest():
     assert blk["block"] == "x" and blk["shards"][0]["shard"] == "1/2" and blk["clips_done"] == 6, st
     assert blk["shards"][0]["eta_h"] == 1.0, st
     ev = json.loads(call("GET", "/api/events", headers=bearer)[1])
-    assert sorted(e["level"] for e in ev) == ["error", "info"], ev
+    assert sorted(e["level"] for e in ev) == ["error", "info"] and {e["block"] for e in ev} == {"x"}, ev
     code, _, r = call("GET", "/?t=t")
     assert code == 302 and "kvs_t=" in r.getheader("Set-Cookie")
     cookie = r.getheader("Set-Cookie").split(";")[0]
@@ -512,7 +658,63 @@ def selftest():
     c = classify(rows, {111: ({"status": "running"}, now)}, now)
     assert (c["totals"]["running"], c["totals"]["dead"], c["totals"]["dph_now"], c["monitor"]["inst"]) == (1, 0, 0.4, 222), c
     assert [(s["inst"], s["dot"], s["status"]) for s in c["blocks"][0]["shards"]] == [(444, "grey", "not ours")], c
+    c = classify({}, {555: ({"label": "kvs-x-1of2", "status": "running", "clips_done": 5, "clips_total": 10}, now - 3000)}, now, True)
+    s = c["blocks"][0]["shards"][0]
+    assert (s["status"], s["dot"], c["totals"]["running"], c["totals"]["dead"], c["blocks"][0]["clips_total"]) == ("gone", "grey", 0, 0, 10), c
     print("selftest ok")
+
+
+def demo(port):
+    """Fake fleet for looking at the page: python scripts/monitor.py --demo (no env needed)."""
+    now = time.time()
+    app = App(":memory:", "demo", "demo", "", True)
+    app.reaper["last_ok"] = now - 40
+    vr = lambda label, st, dph, age_h, **kw: dict(dict(gpu_name="RTX 6000Ada", machine_id=8821, geolocation="CZ"), label=label,
+                                                 actual_status=st, dph_total=dph, start_date=now - age_h * 3600, **kw)
+    app.vast = {1001: vr("kvs-cosmos2b-1of4", "running", .42, 4.2), 1002: vr("kvs-cosmos2b-2of4", "running", .42, 3),
+                1003: vr("kvs-cosmos2b-3of4", "running", .42, 2), 1004: vr("kvs-cosmos2b-4of4", "loading", .42, .2),
+                2001: vr("kvs-wan5b-1of3", "running", .42, 4), 2002: vr("kvs-wan5b-2of3", "running", .42, .3),
+                2003: vr("kvs-wan5b-3of3", "exited", .42, 3),
+                3001: vr("jupyter-sarthak", "running", .30, 2, gpu_name="RTX 4090"),
+                9001: vr("kvs-monitor", "running", .06, 26, gpu_name="GTX 1650", public_ipaddr="1.2.3.4")}
+    # inst: (label, last beat age s, step, status, done, total, used_h, gpu_util)
+    fleet = {1001: ("kvs-cosmos2b-1of4", 20, "b1:cosmos2b", "running", 61, 144, 4.2, 97),
+             1002: ("kvs-cosmos2b-2of4", 90, "b1:cosmos2b", "running", 40, 144, 3, 91),
+             1003: ("kvs-cosmos2b-3of4", 360, "b1:cosmos2b", "running", 22, 144, 2, 0),
+             2001: ("kvs-wan5b-1of3", 15, "done", "finalize", 144, 144, 3.9, 3),
+             2002: ("kvs-wan5b-2of3", 10, "b1:wan5b", "running", 2, 144, .3, 88),
+             2003: ("kvs-wan5b-3of3", 1500, "b1:wan5b", "running", 90, 144, 2.5, 95)}
+    rows = []
+    for inst, (label, age, step, st, done, total, used, gpu) in fleet.items():
+        for k in range(int((7200 - age) / 30)):
+            ts = now - age - 30 * k
+            if inst == 1001 and now - 2400 < ts < now - 1800:  # the 10 min gap
+                continue
+            w = math.sin(ts / 90 + inst)
+            rows.append((ts, inst, json.dumps({
+                "inst": inst, "label": label, "status": st, "step": step, "clips_done": done, "clips_total": total,
+                "used_h": used, "budget_h": 10, "gpu": "RTX 6000Ada", "host": "machine 8821, CZ",
+                "gpu_util": max(0, min(100, gpu + 3 * w)), "vram_gb": 19.4 + w, "vram_total_gb": 47.5,
+                "cpu_pct": 23 + 8 * w, "ram_gb": 21 + w, "ram_total_gb": 63, "net_rx_mbps": 2.1 + w, "net_tx_mbps": 14.8 + 3 * w,
+                "events": [], "tail": chr(10).join(f"step {n} loss 0.{n % 97:02d} {label}" for n in range(40))})))
+    with app.lock:
+        app.db.executemany("INSERT INTO beats VALUES(?,?,?)", rows)
+        app.db.commit()
+    stamp = lambda ts, s: time.strftime("%Y-%m-%d %H:%M:%S ", time.localtime(ts)) + s
+    for ago_s, inst, label, line, lv in [
+            (7000, 1001, "kvs-cosmos2b-1of4", "START b1:cosmos2b (est 4.00 h, used 0 h)", None),
+            (6500, 2001, "kvs-wan5b-1of3", "END b1:wan5b: rc=0, 3.90 h (used 3.90 h)", None),
+            (5000, 2002, "kvs-wan5b-2of3", "SKIP b2:wan5b: already done", None),
+            (3000, 1002, "kvs-cosmos2b-2of4", "END b1:cosmos2b: rc=1, 0.80 h (used 0.80 h)", None),
+            (1500, 2001, "kvs-wan5b-1of3", "guard triggered on kvs-wan5b-1of3", "error"),
+            (1200, 2999, "kvs-wan5b-9of9", "KILL kvs-wan5b-9of9 #2999: no beat for 11 min", None),
+            (900, 0, "reaper", "reaper: vastai rc=1: too frequent", "warn"),
+            (210, 1003, "kvs-cosmos2b-3of4", "stale: no beat 3 min, vast running", "warn")]:
+        ts = now - ago_s
+        app.event(inst, label, stamp(ts, line) if not line.startswith(("KILL", "guard", "reaper", "stale")) else line, lv, ts)
+    srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    print(f"http://localhost:{srv.server_address[1]}/?t=demo", flush=True)
+    srv.serve_forever()
 
 
 def main():
@@ -522,7 +724,10 @@ def main():
     ap.add_argument("--stale-min", type=int, default=10)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--demo", action="store_true", help="serve a fake fleet, token 'demo', no env needed")
     a = ap.parse_args()
+    if a.demo:
+        return demo(a.port)
     if a.selftest:
         return selftest()
     token = os.environ.get("MONITOR_TOKEN")
