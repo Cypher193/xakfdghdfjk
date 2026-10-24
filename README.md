@@ -42,11 +42,11 @@ Pod template:
 
 Before terminating a pod: `python scripts/sync.py push`.
 
-vast.ai instance (same image and scripts; template `cvpr-vail-pilot`):
+vast.ai instance (same image and scripts; template `cvpr-vail-pilot` on the VAIL-DTU team account, datacenter hosts only):
 - Launch mode SSH (direct), 300 GB disk (fixed at creation), host CUDA 12.8 or newer; the image is public on GHCR
 - `HF_TOKEN` as an account-level environment variable, never in the template (anyone with its URL can use it)
 - On-start script writes the variables SSH sessions need to `/etc/environment` (read by `scripts/pod_env.sh`):
-  `env | grep -E "^(HF_TOKEN|HF_HOME|CONTAINER_ID|CONTAINER_API_KEY|BPY_PYTHON|UV_PYTHON_INSTALL_DIR|PYTHONUNBUFFERED)=" >> /etc/environment`
+  `env | grep -E "^(RUNPOD_POD_ID|CONTAINER_ID|CONTAINER_API_KEY|HF_TOKEN|HF_HOME|BPY_PYTHON|UV_PYTHON_INSTALL_DIR|PYTHONUNBUFFERED|MONITOR_URL|MONITOR_TOKEN|VAST_CONTAINERLABEL)=" >> /etc/environment`
 - At the end `finalize.py` (or `guard.py` after a crash) destroys the instance with its own `CONTAINER_API_KEY` once
   every file is verified on HF; if verification failed it only stops it, so the disk and its data are kept.
 
