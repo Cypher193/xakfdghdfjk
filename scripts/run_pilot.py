@@ -133,7 +133,7 @@ def screen_plan(tier, skip=()):
 SHARDS = 7                                                   # phase 2 (2026-10-25): kmain 100 scenes over 7 pods
 LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
-            "probe": ["runs/steer/ltx2b"], "probe2": [],
+            "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [],
             **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
 
@@ -187,6 +187,9 @@ def _shard_jobs():
                                                    f"results/show_ltx_s{k}of{SHARDS}.csv"], 10 * clips))
         jobs[f"s{k}of{SHARDS}"] = steps
     jobs["probe2"] = _probe_steps()
+    # clips generated but never scored: s6/s7's first host died before their score step (sync.py picks the clips)
+    jobs["score2"] = [cmd("score:score2", ["-m", "pilot.score", "--models", "ltx2b", "--table",
+                                           "results/show_ltx_score2.csv"], 10 * 150)]
     return jobs
 
 

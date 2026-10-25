@@ -21,6 +21,12 @@ from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download, whoami
 
 PATTERNS = ["data/scenes/**", "data/renders/**", "data/logs/**", "data/real/**", "runs/**", "results/**"]
+
+
+def repo_id():
+    return os.environ.get("HF_DATA_REPO") or f"{whoami()['name']}/cvpr-vail-pilot"
+
+
 IGNORE = ["**/*.partial.mp4", "**/*.tmp"]      # clips still being written
 ROOT = Path(__file__).resolve().parents[1]
 if os.environ.get("SCREEN_TIER"):
@@ -38,13 +44,16 @@ elif os.environ.get("LTX_JOB"):
     if re.fullmatch(r"s\d+of\d+", j):     # phase 2 shard: only the old clips' meta/score (skip check, scorer), no videos
         PATTERNS = base + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json")]
         PATTERNS.append("assets_cache/**")  # Poly Haven lists + maps from the laptop: same choices as the pilot, no downloads
+    if j == "score2":                     # every LTX clip with meta.json but no score.json on HF, video + meta only
+        BAD = {"runs/b1/ltx2b/kmain_cv_41_s2"}       # HF holds a size-inconsistent video.mp4 there: unreadable
+        fs = HfApi().list_repo_files(repo_id(), repo_type="dataset")
+        meta = {f.rsplit("/", 1)[0] for f in fs if re.fullmatch(r"runs/(b1|b2nl|b3)/ltx2b/[^/]+/meta\.json", f)}
+        todo = sorted(meta - {f.rsplit("/", 1)[0] for f in fs if f.endswith("/score.json")} - BAD)
+        PATTERNS = ["data/scenes/**"] + mine + [f"{d}/{x}" for d in todo for x in ("video.mp4", "meta.json")]
+        PUSH_PATTERNS = mine + [f"{d}/score.json" for d in todo]
     if j == "probe2":                     # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
         PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
-
-
-def repo_id():
-    return os.environ.get("HF_DATA_REPO") or f"{whoami()['name']}/cvpr-vail-pilot"
 
 
 def pull():

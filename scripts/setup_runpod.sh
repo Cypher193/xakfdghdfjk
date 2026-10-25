@@ -22,6 +22,8 @@ repos = [("nvidia/Cosmos-Predict2.5-2B", "diffusers/base/post-trained"),
          ("facebook/sam2.1-hiera-large", None)]
 if os.environ.get("SCREEN_TIER"):
     repos = repos[-1:]
+elif os.environ.get("LTX_JOB") == "score2":   # scoring only: SAM2, no LTX (downloads are billed per GB on some hosts)
+    repos = repos[-1:]
 elif os.environ.get("LTX_JOB"):            # LTX plan pods: LTX + SAM2 only (26 GB), the disk is sized for that
     repos = [repos[1], repos[-1]]
 for repo, rev in repos:
