@@ -46,7 +46,15 @@ def repo_id():
 
 
 def pull():
-    snapshot_download(repo_id(), repo_type="dataset", local_dir=ROOT, allow_patterns=PATTERNS)
+    for attempt in range(4):    # xet transfers fail now and then ("File size mismatch", probe2 setup); resumes on retry
+        try:
+            snapshot_download(repo_id(), repo_type="dataset", local_dir=ROOT, allow_patterns=PATTERNS)
+            break
+        except Exception as e:
+            if attempt == 3:
+                raise
+            print(f"pull failed ({type(e).__name__}: {str(e)[:120]}), retrying", flush=True)
+            time.sleep(30)
     print("pulled", repo_id(), flush=True)
 
 
