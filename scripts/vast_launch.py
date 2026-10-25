@@ -14,6 +14,7 @@ from your shell to build the URL it prints.
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -139,6 +140,11 @@ def monitor(a):
     sys.exit(1)
 
 
+def worker_label(a, k):
+    m = re.fullmatch(r"s(\d+)of(\d+)", a.job)      # phase 2 shard jobs: one monitor block "ltx2"
+    return f"kvs-ltx2-{m[1]}of{m[2]}" if m else f"kvs-ltx{a.job}-{k}of{a.n}"
+
+
 def worker_offers(a):
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
@@ -182,11 +188,11 @@ def worker(a):
         print(f"WARNING: only {len(offers)} distinct machines for n={a.n}")
     if a.dry_run:
         for k, o in enumerate(offers[:a.n], 1):
-            print("\n" + " ".join(shlex.quote(c) for c in worker_create_cmd(o["id"], f"kvs-ltx{a.job}-{k}of{a.n}", a, url)))
+            print("\n" + " ".join(shlex.quote(c) for c in worker_create_cmd(o["id"], worker_label(a, k), a, url)))
         return
     pool = iter(offers)
     for k in range(1, a.n + 1):
-        label, ok = f"kvs-ltx{a.job}-{k}of{a.n}", False       # block "ltxgen1": one block per job on the monitor
+        label, ok = worker_label(a, k), False       # block "ltxgen1": one block per job on the monitor
         for o in [x for _, x in zip(range(3), pool)]:
             r = vast(*worker_create_cmd(o["id"], label, a, url)[1:-1])
             iid = (r or {}).get("new_contract")

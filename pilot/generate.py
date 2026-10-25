@@ -5,6 +5,7 @@
     python -m pilot.generate --model magi45 --exp b1 --export-jobs   # external repo: job files for its runner
 
 Writes runs/{exp}/{model}/{scene}_s{seed}/ video.mp4, meta.json, acts.npz, latent.pt. Existing runs are skipped.
+--shard K/N runs one slice of the scenes (--write-shard DIR just copies it; pod scripts use pilot.shard, no torch).
 --export-jobs writes job.json + input.npz there instead (pilot/jobs.py); scripts/ext/run_*.py generate from them.
 """
 import argparse
@@ -20,6 +21,7 @@ import yaml
 
 from pilot import jobs
 from pilot.models import Generator, _pil
+from pilot.shard import scene_list, shard, write_shard
 from pilot.scenes import object_track, project
 
 
@@ -69,19 +71,6 @@ def rendered_inputs(spec, render_dir, fps, n):
     return frames, [b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max()]
 
 
-def scene_list(cfg, exp):
-    e = cfg["experiments"][exp]
-    if e["scenes"] == "real":
-        return json.loads(Path("data/real/manifest.json").read_text(encoding="utf-8"))
-    files = sorted((Path(cfg["paths"]["data"]) / "scenes" / e["scenes"]).glob("*.json"))
-    specs = [json.loads(f.read_text(encoding="utf-8")) for f in files]
-    if e["scenes"] == "kmain":      # interleave families so --limit N is balanced: cv_00, ca_00, cv_01, ...
-        cv = [s for s in specs if s["family"] == "cv"]
-        ca = [s for s in specs if s["family"] != "cv"]
-        specs = [s for pair in zip(cv, ca) for s in pair] + cv[len(ca):] + ca[len(cv):]
-    return specs                    # kgrav is sorted by scene then gravity, so --limit 3k = k whole scenes
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
@@ -89,6 +78,8 @@ def main():
     ap.add_argument("--config", default="configs/pilot.yaml")
     ap.add_argument("--seeds", type=int, nargs="*")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--shard", help="K/N (1-based): run only every N-th scene starting at the K-th, after --limit")
+    ap.add_argument("--write-shard", help="copy the selected scene JSONs into this (emptied) dir and exit; no model is loaded")
     ap.add_argument("--no-capture", action="store_true", help="timing runs")
     ap.add_argument("--res", help="override resolution as HEIGHTxWIDTH, e.g. 480x832; runs go to {model}_{H}p")
     ap.add_argument("--export-jobs", action="store_true", help="write job.json + input.npz for an external runner")
@@ -101,6 +92,10 @@ def main():
         run_name = f"{a.model}_{mcfg['height']}p"
     seeds = a.seeds or e.get("seeds") or cfg["seeds"]
     scenes = scene_list(cfg, a.exp)[: a.limit or None]
+    if a.shard:
+        scenes = shard(scenes, a.shard)
+    if a.write_shard:
+        return write_shard(cfg, a.exp, scenes, a.write_shard)
     if mcfg.get("ext") and not a.export_jobs:
         raise SystemExit(f"{a.model} runs outside diffusers: --export-jobs, then scripts/ext/run_{mcfg['ext']}.py")
     gen = None if a.export_jobs else Generator(a.model, mcfg, cfg)

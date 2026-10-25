@@ -6,13 +6,15 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
-LTX pods (LTX_JOB=gen1..gen4|probe, scripts/ltx_pod.sh): PATTERNS (pull) = inputs + the job's runs, logs and
-results (probe: also every runs/*/ltx2b); PUSH_PATTERNS = only the job's own files.
+LTX pods (LTX_JOB=gen1..gen4|probe|probe2|sKofN, scripts/ltx_pod.sh): PATTERNS (pull) = inputs + the job's runs, logs and
+results (probe, probe2: also every runs/*/ltx2b; shards sKofN: only runs/*/ltx2b/*/meta.json and score.json, so
+PATTERNS is not a superset of PUSH_PATTERNS); PUSH_PATTERNS = only the job's own files.
 Screen pods (SCREEN_TIER=A|B|all, set by scripts/screen_pod.sh) pull the inputs plus their own runs, logs and table
 and push only those: two pods share the repo, and a pod must never re-upload a stale pulled copy of the other's files.
 """
 import argparse
 import os
+import re
 import time
 from pathlib import Path
 
@@ -29,10 +31,12 @@ if os.environ.get("SCREEN_TIER"):
 elif os.environ.get("LTX_JOB"):
     from run_pilot import LTX_PULL_EXTRA, LTX_RUNS, tag
     j = os.environ["LTX_JOB"]
-    PUSH_PATTERNS = ["data/scenes/**", "data/renders/**", "data/real/**", f"data/logs/*{tag('ltx', j)}*",
-                     f"results/*{tag('ltx', j)}*"] + [f"{r}/**" for r in LTX_RUNS[j]] + \
-        (["results/p6_ltx2b*"] if j == "probe" else [])        # pilot.probe writes results/p6_{model}_{target}_{pool}.csv
-    PATTERNS = PUSH_PATTERNS + ([f"{r}/**" for r in LTX_PULL_EXTRA] if j == "probe" else [])   # pull: a superset
+    base = ["data/scenes/**", "data/renders/**", "data/real/**"]
+    mine = [f"data/logs/*{tag('ltx', j)}*", f"results/*{tag('ltx', j)}*"]
+    PUSH_PATTERNS = base + mine + [f"{r}/**" for r in LTX_RUNS[j]] +         (["results/p6_ltx2b*"] if j.startswith("probe") else [])    # pilot.probe writes results/p6_{model}_{target}_{pool}.csv
+    PATTERNS = PUSH_PATTERNS + ([f"{r}/**" for r in LTX_PULL_EXTRA] if j.startswith("probe") else [])   # pull: a superset
+    if re.fullmatch(r"s\d+of\d+", j):     # phase 2 shard: only the old clips' meta/score (skip check, scorer), no videos
+        PATTERNS = base + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json")]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 
 

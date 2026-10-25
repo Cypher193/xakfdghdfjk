@@ -2,13 +2,13 @@
 # One job of the LTX-2B full plan on one fresh pod (a 24 GB card is enough; gen1..gen4 and probe run on separate pods):
 # setup (outside the budget), the job's steps (the last one scores), push, verify, stop the pod.
 #   cd /workspace && git clone https://github.com/Cypher193/xakfdghdfjk.git cvpr_vail && cd cvpr_vail
-#   setsid nohup bash scripts/ltx_pod.sh gen1 6 > /workspace/ltx.out 2>&1 < /dev/null &      # job gen1|gen2|gen3|gen4|probe, budget (h)
+#   setsid nohup bash scripts/ltx_pod.sh gen1 6 > /workspace/ltx.out 2>&1 < /dev/null &      # job gen1|gen2|gen3|gen4|probe|probe2|sKof7, budget (h)
 # LTX_JOB makes sync.py pull the inputs plus the job's files (probe: every gen job's LTX runs) and push only the job's own.
 # The probe job must start after gen1..gen4 have pushed. Logs carry the _ltx_{job} suffix. Heartbeats go to $MONITOR_URL if set.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-JOB=${1:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe BUDGET_H}
-BUDGET=${2:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe BUDGET_H}
+JOB=${1:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe|probe2|sKof7 BUDGET_H}
+BUDGET=${2:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe|probe2|sKof7 BUDGET_H}
 source scripts/pod_env.sh
 export LTX_JOB=$JOB
 S=_ltx_$JOB

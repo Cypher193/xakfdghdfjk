@@ -210,7 +210,16 @@ def finalise(scene, cam, cfg, rng):
     return scene
 
 
-def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10):
+def _draw(make, rng, sid, cam, cfg):
+    """New (phase 2) scenes only: redraw from the same stream if the draw leaves the frame."""
+    while True:
+        try:
+            return finalise(make(rng, sid, cam) if make is make_cv else make(rng, sid), cam, cfg, rng)
+        except AssertionError:
+            pass
+
+
+def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35):
     # one random stream per family, so changing one family never reshuffles the others
     streams = {f: np.random.default_rng([seed, k]) for k, f in enumerate(("kmain", "kgrav", "kratio", "kcont"))}
     cam = camera(cfg)
@@ -218,6 +227,11 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10):
     rng = streams["kmain"]
     out["kmain"] = [finalise(make_cv(rng, f"kmain_cv_{i:02d}", cam), cam, cfg, rng) for i in range(n_cv)]
     out["kmain"] += [finalise(make_bounce(rng, f"kmain_ca_{i:02d}"), cam, cfg, rng) for i in range(n_bounce)]
+    # phase 2, 2026-10-25: 35 more cv + 35 more ca (ids 15..49) from their own stream, so the pilot's 30 scenes stay identical
+    rng = np.random.default_rng([seed, 4])
+    for fam, make in (("cv", make_cv), ("ca", make_bounce)):
+        for i in range(n_cv if fam == "cv" else n_bounce, (n_cv if fam == "cv" else n_bounce) + n_more):
+            out["kmain"].append(_draw(make, rng, f"kmain_{fam}_{i:02d}", cam, cfg))
     rng = streams["kgrav"]
     out["kgrav"] = []
     for i in range(n_grav):

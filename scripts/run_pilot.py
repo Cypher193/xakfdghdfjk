@@ -44,17 +44,18 @@ def n_scenes(exp):
     return len(list((root / f"data/scenes/{scenes}").glob("*.json"))) or 7
 
 
-def gen(model, exp, limit, seeds, ext=None):
+def gen(model, exp, limit, seeds, ext=None, shard=None, ids=None):
     """ext: external repo (scripts/ext/setup_ext.sh): export job files, then run its runner in its own venv."""
-    n = (limit or n_scenes(exp)) * len(seeds)
+    n = (len(ids) if ids else limit or n_scenes(exp)) * len(seeds)
     c = [PY, "-m", "pilot.generate", "--model", model, "--exp", exp, "--seeds", *map(str, seeds)] \
-        + (["--limit", str(limit)] if limit else [])
+        + (["--limit", str(limit)] if limit else []) + (["--shard", shard] if shard else [])
     if ext:
         d = f"{os.environ.get('EXT_ROOT', '/workspace/ext')}/{ext}"
         runner = [f"{d}/venv/bin/python", f"scripts/ext/run_{ext}.py", "--repo", f"{d}/repo", "--exp", exp,
                   "--model", model]
         c = ["bash", "-c", f"{shlex.join(c + ['--export-jobs'])} && exec {shlex.join(runner)}"]
-    return dict(name=f"{exp}:{model}", kind="gen", model=model, clips=n, out=[f"runs/{exp}/{model}"], cmd=c)
+    return dict(name=f"{exp}:{model}", kind="gen", model=model, clips=n, out=[f"runs/{exp}/{model}"], cmd=c,
+                **({"ids": ids, "seeds": seeds} if ids else {}))
 
 
 def cmd(name, args, est_s):
@@ -129,10 +130,18 @@ def screen_plan(tier, skip=()):
 
 
 # LTX-2B "full" plan: one job per pod (scripts/ltx_pod.sh). Run dirs each job pushes (sync.py imports them).
+SHARDS = 7                                                   # phase 2 (2026-10-25): kmain 100 scenes over 7 pods
 LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
-            "probe": ["runs/steer/ltx2b"]}
+            "probe": ["runs/steer/ltx2b"], "probe2": [],
+            **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
+
+
+def _probe_steps():
+    return [cmd(f"probe:{t}:{'+'.join(e)}:{pool}",
+                ["-m", "pilot.probe", "--model", "ltx2b", "--exps", *e, "--target", t, "--pool", pool], 300)
+            for e, t in ((["b1"], "hspeed"), (["b1", "b5"], "g"), (["b1", "b5"], "e")) for pool in ("obj", "all")]
 
 
 def _ltx_jobs():
@@ -142,9 +151,7 @@ def _ltx_jobs():
             "gen4": [gen("ltx2b", "bratio", None, [0, 1, 2]),
                      dict(name="p7:ltx2b", kind="gen", model="p7_ltx2b", clips=30, out=LTX_RUNS["gen4"][1:],
                           cmd=[PY, "-m", "pilot.invert", "--model", "ltx2b", "--scenes", "30"])]}
-    probe = [cmd(f"probe:{t}:{'+'.join(e)}:{pool}",
-                 ["-m", "pilot.probe", "--model", "ltx2b", "--exps", *e, "--target", t, "--pool", pool], 300)
-             for e, t in ((["b1"], "hspeed"), (["b1", "b5"], "g"), (["b1", "b5"], "e")) for pool in ("obj", "all")]
+    probe = _probe_steps()
     probe += [cmd(f"probe:{m}", ["-m", "pilot.probe", "--model", m, "--exps", "p7", "--target", "hspeed"], 300)
               for m in ("ltx2b_noise", "ltx2b_inv")]
     probe.append(dict(name="steer:ltx2b", kind="gen", model="ltx2b", clips=120, out=["runs/steer/ltx2b"],
@@ -158,7 +165,32 @@ def _ltx_jobs():
     return jobs
 
 
-LTX_JOBS = _ltx_jobs()
+def _shard_jobs():
+    """Phase 2: shard K/7 of the 100 kmain scenes renders (input window + full clip), generates b1, b2nl and b3 and scores
+    its own scenes. The 30 pilot scenes are skipped at run time (their meta.json is pulled); probe2 reruns the probes."""
+    n = n_scenes("b1")
+    jobs = {}
+    for k in range(1, SHARDS + 1):
+        pos = range(k - 1, n, SHARDS)                          # positions in pilot.shard.scene_list order (cv_00, ca_00, ...)
+        ids = [f"kmain_{'cv' if p % 2 == 0 else 'ca'}_{p // 2:02d}" for p in pos]
+        new = sum(p >= 30 for p in pos)                        # the first 30 positions are the pilot scenes
+        d, sh = f"data/shard_{k}", f"{k}/{SHARDS}"            # outside data/scenes: never pushed
+        render = lambda name, flags, per: dict(
+            name=name, kind="cmd", est_s=per * new, cmd=["bash", "-c",
+            f"python -m pilot.shard --exp b1 --shard {sh} --write-shard {d} && "
+            f"${{BPY_PYTHON:-/opt/bpy/bin/python}} -m pilot.render {d} --out data/renders/kmain --gpu {flags}"])
+        steps = [render("render-in", "--fps 48 --seconds 1.125 --suffix _input", 90)]
+        steps += [gen("ltx2b", e, None, [0, 1, 2], shard=sh, ids=ids) for e in ("b1", "b2nl", "b3")]
+        steps.append(render("render-full", "", 180))
+        clips = sum(s.get("clips", 0) for s in steps)
+        steps.append(cmd(f"score:s{k}of{SHARDS}", ["-m", "pilot.score", "--models", "ltx2b", "--table",
+                                                   f"results/show_ltx_s{k}of{SHARDS}.csv"], 10 * clips))
+        jobs[f"s{k}of{SHARDS}"] = steps
+    jobs["probe2"] = _probe_steps()
+    return jobs
+
+
+LTX_JOBS = _ltx_jobs() | _shard_jobs()
 
 
 def tag(plan, tier):
@@ -232,7 +264,8 @@ def main():
     state = dict(budget_h=a.budget_h, clips_total=sum(s.get("clips", 0) for s in plan), steps={})
     log(f"plan: {len(plan)} steps, {state['clips_total']} clips", state)
     for step in plan:
-        if step.get("out") and all(len(list(Path(o).glob("*/meta.json"))) >= step["clips"] for o in step["out"]):
+        pat = [f"{i}_s{x}/meta.json" for i in step["ids"] for x in step["seeds"]] if step.get("ids") else ["*/meta.json"]
+        if step.get("out") and all(sum(len(list(Path(o).glob(g))) for g in pat) >= step["clips"] for o in step["out"]):
             state["steps"][step["name"]] = dict(status="done earlier")
             log(f"DONE-EARLIER {step['name']}", state)
             continue
