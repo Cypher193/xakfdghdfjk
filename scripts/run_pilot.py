@@ -130,11 +130,13 @@ def screen_plan(tier, skip=()):
 
 
 # LTX-2B "full" plan: one job per pod (scripts/ltx_pod.sh). Run dirs each job pushes (sync.py imports them).
+C9_SHARDS = 4                                                # phase 3: C9 (LEACE) over 4 pods
 SHARDS = 7                                                   # phase 2 (2026-10-25): kmain 100 scenes over 7 pods
 LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
             "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [],
-            **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)}}
+            **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)},
+            **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
 
 
@@ -193,7 +195,20 @@ def _shard_jobs():
     return jobs
 
 
-LTX_JOBS = _ltx_jobs() | _shard_jobs()
+def _c9_jobs():
+    """Phase 3, C9 (docs/phase3.md): shard K/4 of the kmain scenes, seed 0, cond leace + rand = 2 clips per scene."""
+    jobs = {}
+    for k in range(1, C9_SHARDS + 1):
+        clips, name = 2 * len(range(k - 1, n_scenes("b1"), C9_SHARDS)), f"c9s{k}of{C9_SHARDS}"
+        jobs[name] = [
+            dict(name="c9:ltx2b", kind="gen", model="ltx2b", clips=clips, out=["runs/c9/ltx2b"], per_s=40,
+                 cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--shard", f"{k}/{C9_SHARDS}"]),
+            cmd(f"score:{name}", ["-m", "pilot.score", "--models", "ltx2b", "--table", f"results/show_ltx_{name}.csv"],
+                10 * clips)]
+    return jobs
+
+
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs()
 
 
 def tag(plan, tier):
@@ -222,7 +237,7 @@ def measured(model):
 def estimate(step):
     if step["kind"] == "cmd":
         return step["est_s"]
-    per = measured(step["model"]) or EST[step["model"]]
+    per = step.get("per_s") or measured(step["model"]) or EST[step["model"]]
     return LOAD_S + step["clips"] * per
 
 

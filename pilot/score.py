@@ -118,7 +118,7 @@ def table(runs="runs", out="results/show.csv", models=None):
             continue
         meta = json.loads((s.parent / "meta.json").read_text(encoding="utf-8"))
         rows.append(dict(exp=s.parts[-4], model=s.parts[-3], scene=meta["scene"], seed=meta["seed"],
-                         alpha=meta.get("alpha"), wall_s=meta.get("wall_s"))
+                         alpha=meta.get("alpha"), cond=meta.get("cond"), wall_s=meta.get("wall_s"))
                     | json.loads(s.read_text(encoding="utf-8")))
     df = pd.DataFrame(rows)
     Path(out).parent.mkdir(parents=True, exist_ok=True)

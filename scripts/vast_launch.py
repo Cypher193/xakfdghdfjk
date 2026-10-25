@@ -31,6 +31,8 @@ SRC = "https://raw.githubusercontent.com/Cypher193/xakfdghdfjk/main/scripts/moni
 ONSTART = ("pip install -q vastai; python -c \"import urllib.request as u;u.urlretrieve('{src}','/monitor.py')\" && "
            "{{ env | grep -E '^(MONITOR_TOKEN|MONITOR_VAST_KEY|MONITOR_NTFY)=' >> /etc/environment; "
            "cd / && nohup python /monitor.py --port {port} > /monitor.out 2>&1 & }}")
+# hosts that failed in phases 1/2: image pulls that never finish, the flaky 137.175.22.196 network
+BAD_MACHINES = {153150, 113571, 84216, 151184, 52126, 143568, 147283, 138174}
 TEMPLATE = "d1b2fe045f890349b734850a9d312072"
 POD_SCRIPT = "scripts/ltx_pod.sh"      # swap for scripts/full_pod.sh later
 REPO = "https://github.com/Cypher193/xakfdghdfjk.git"
@@ -141,6 +143,9 @@ def monitor(a):
 
 
 def worker_label(a, k):
+    m = re.fullmatch(r"c9s(\d+)of(\d+)", a.job)      # phase 3 C9 jobs: monitor block "c9"
+    if m:
+        return f"kvs-c9-{m[1]}of{m[2]}"
     m = re.fullmatch(r"s(\d+)of(\d+)", a.job)      # phase 2 shard jobs: one monitor block "ltx2"
     return f"kvs-ltx2-{m[1]}of{m[2]}" if m else f"kvs-ltx{a.job}-{k}of{a.n}"
 
@@ -148,11 +153,12 @@ def worker_label(a, k):
 def worker_offers(a):
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
+         f"inet_down_cost<=0.005 "        # $/GB: phase 2 paid $3.5 in download fees at up to $0.03/GB
          + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))   # CN hosts: HF downloads at ~150 s per file
     # skip machines already running one of ours: separate launcher calls otherwise all pick the cheapest offer, and
     # phase 2 put 5 shards on one 8-GPU box whose shared uplink then dropped HF/vast HTTPS ("Server disconnected")
     busy = {i.get("machine_id") for i in instances() if (i.get("label") or "").startswith("kvs-")}
-    seen, out = set(a.not_machine) | busy, []
+    seen, out = set(a.not_machine) | BAD_MACHINES | busy, []
     for o in vast("search", "offers", q, "-o", "dph_total") or []:
         if o["machine_id"] not in seen:          # one offer per host so workers never share a machine
             seen.add(o["machine_id"])
