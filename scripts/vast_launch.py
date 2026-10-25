@@ -149,7 +149,10 @@ def worker_offers(a):
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
          + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))   # CN hosts: HF downloads at ~150 s per file
-    seen, out = set(a.not_machine), []
+    # skip machines already running one of ours: separate launcher calls otherwise all pick the cheapest offer, and
+    # phase 2 put 5 shards on one 8-GPU box whose shared uplink then dropped HF/vast HTTPS ("Server disconnected")
+    busy = {i.get("machine_id") for i in instances() if (i.get("label") or "").startswith("kvs-")}
+    seen, out = set(a.not_machine) | busy, []
     for o in vast("search", "offers", q, "-o", "dph_total") or []:
         if o["machine_id"] not in seen:          # one offer per host so workers never share a machine
             seen.add(o["machine_id"])
