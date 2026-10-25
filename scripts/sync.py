@@ -38,6 +38,8 @@ elif os.environ.get("LTX_JOB"):
     if re.fullmatch(r"s\d+of\d+", j):     # phase 2 shard: only the old clips' meta/score (skip check, scorer), no videos
         PATTERNS = base + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json")]
         PATTERNS.append("assets_cache/**")  # Poly Haven lists + maps from the laptop: same choices as the pilot, no downloads
+    if j == "probe2":                     # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
+        PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 
 

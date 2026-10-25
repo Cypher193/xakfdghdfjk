@@ -10,6 +10,7 @@ Writes runs/{exp}/{model}/{scene}_s{seed}/ video.mp4, meta.json, acts.npz, laten
 """
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -132,7 +133,10 @@ def main():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
             r = gen.generate(frames, prompt, seed, box, in_wh, capture=not a.no_capture)
-            imageio.mimwrite(out / "video.mp4", r["video"], fps=mcfg["fps"], quality=9, macro_block_size=1)
+            # write then rename: the 15 min background push once uploaded a video.mp4 mid-write, and HF kept a size that
+            # no longer matched its content (runs/b1/ltx2b/kmain_cv_41_s2, every later pull of it failed)
+            imageio.mimwrite(out / "video.partial.mp4", r["video"], fps=mcfg["fps"], quality=9, macro_block_size=1)
+            os.replace(out / "video.partial.mp4", out / "video.mp4")
             if r["acts"]:
                 np.savez_compressed(out / "acts.npz", **r["acts"],
                                     **{f"vae/{k}": v for k, v in r.get("vae", {}).items()})
