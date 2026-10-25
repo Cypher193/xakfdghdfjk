@@ -154,7 +154,7 @@ def _ltx_jobs():
     for j, steps in jobs.items():       # p7 clips live in model dirs ltx2b_noise / ltx2b_inv, so gen4 scores those too
         models = ["ltx2b", "ltx2b_noise", "ltx2b_inv"] if j == "gen4" else ["ltx2b"]
         steps.append(cmd(f"score:{j}", ["-m", "pilot.score", "--models", *models, "--table", f"results/show_ltx_{j}.csv"],
-                         60 * sum(s.get("clips", 0) for s in steps)))   # ~60 s per clip generated in the job
+                         10 * sum(s.get("clips", 0) for s in steps)))   # measured 3.5-7 s per clip on a 3090 (gen1/gen3)
     return jobs
 
 

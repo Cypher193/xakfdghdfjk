@@ -153,6 +153,9 @@ def main():
         log(f"verify: {check}")
         if check.get("missing") == 0:
             break
+        # upload_large_folder keeps per-file state in .cache/huggingface/upload; a push killed between upload and
+        # commit leaves files marked done that never reached the repo (gen4: 153 "missing" for 1.8 h). Forget the state.
+        shutil.rmtree(ROOT / ".cache/huggingface/upload", ignore_errors=True)
         time.sleep(30)
     check.update(verified=check.get("missing") == 0, at=f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}")
     (ROOT / f"data/logs/final_check{t}.json").write_text(json.dumps(check, indent=1))
