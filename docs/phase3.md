@@ -79,6 +79,23 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - **Perturbation: both ≤ 0.3, and leace at most 2× rand** (was within 2× either way). At blocks 20 and up, leace is about 0.11 and rand about 0.23. A smaller leace edit only makes "information used" harder to show.
   - These are engineering checks from this document, not pre-registered gates.
 - **The analysis then reads whether the erasure held:** it probes the C9b activations at every block, retraining the probe on each condition.
+- **C9b result (2026-10-26, 200 clips, `results/c3_ltx2b_c9b_*`):**
+  - **Measurable clips:** leace 61/100 and rand 47/100, against C9's 70 and 66.
+  - **Speed readout on the 40 scenes measurable in all conditions:**
+
+    | Condition | rho | 95% CI | Median MRA |
+    |---|---|---|---|
+    | B1 seed 0 | 0.735 | [0.53, 0.87] | 0.78 |
+    | leace | 0.483 | [0.13, 0.75] | 0.69 |
+    | rand | 0.537 | [0.28, 0.73] | 0.38 |
+
+    - rho(B1) − rho(leace) = +0.25, CI [0.003, 0.53]: leace lowers rho compared with no erasure.
+    - rho(rand) − rho(leace) = +0.05, CI [−0.32, 0.43]: "information used" is false.
+  - **Probe trained on clean B1, applied to the erased runs:** R² of ln hspeed is about 0 at blocks 7–8. It stays at or below 0.5 at every block from 7 to 27 (C9 recovered 0.7–0.9 by blocks 10–12). The original speed direction stays erased.
+  - **Probe retrained on the leace runs:** MRA 0.88–0.96 at blocks 8–27, higher than B1 (0.61–0.80). Speed is re-encoded along new directions that the erasers, fit on clean data, do not touch.
+  - **Rand probe:** falls to 0.58–0.66 at late blocks. The rand edits there disturb the features more than leace does.
+  - **Reading:** the linear speed code is redundant. Removing it at every block moves the model to another encoding. Motion gets worse under leace and rand alike, so the damage is not specific to speed.
+  - **Next step for a clean causal test:** sequential (concept-scrubbing) LEACE, refitting each block on activations already erased upstream. That needs one generation pass per block, which is expensive.
 - **C9b runs:** jobs `c9bs1of4`..`c9bs4of4` write to `runs/c9b/ltx2b/`. The readout is `python -m pilot.analysis c9b` and writes `results/c3_ltx2b_c9b_*`.
 
 ## B-ratio: why only 5/30 clips are measurable
