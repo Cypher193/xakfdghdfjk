@@ -20,3 +20,12 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - The QuantiPhy clips first chosen (video type S3) move toward and away from the camera, and their labels are 3D speeds. They were replaced with 2D-motion clips (simulation_0163, internet_0027).
   - The tracker's metre scale now comes from min(mask width, height) instead of mask area.
   - Both changes fix measurement errors and do not alter any threshold.
+
+## D2 — B-ratio rerun with bigger balls (2026-10-26, after seeing data)
+
+- **Result that prompted it:** only 5/30 LTX B-ratio clips were measurable, which fails G1b on its own.
+- **Diagnosis:** the kratio balls are 0.25–0.40 m at the 9 m ratio camera, i.e. 25–41 px wide. One LTX latent cell is 32 px, so LTX smears or drops the balls.
+- **Change:** a new scene set `kratio2` with 0.7–0.9 m balls (71–92 px) and throws capped at 8.5 m/s, so the whole ball stays in frame. It is run as experiment `bratio2`. The old `kratio`/`bratio` data are kept, and G1b uses `bratio2` once it exists.
+- **What is not changed:** the camera, the throw law, the tracker and every threshold.
+- **Side effect:** the speed cap narrows the throw-speed ratio to about 1.33–1.43 (was 1.3–1.5).
+- **Approved by:** the user, on 2026-10-26.
