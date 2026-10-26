@@ -64,4 +64,33 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   width, B5), G5 (clock rule), G6 (steering, fail), G8 (power at gap 0.10 with this n), G10 (rendered vs real
   measurability); G1a / G7 / G9 "not evaluated" with the reason. Every number cites the file it came from.
 
-## B-ratio: why only 5/30 clips are measurable (CPU, read-only diagnosis first)
+## C9 result and C9b (every block from 7)
+
+- **C9 (one block):** LEACE at block 7 removes the speed code locally: probe MRA on the c9 activations drops from 0.81 to 0.56. Block 8 re-learns it (0.90).
+  - Generated motion is unchanged: rho 0.77 for LEACE vs 0.79 for B1 seed 0, while the rand control drops to 0.66.
+  - "Information used" is false. C9 is inconclusive.
+- **Why C9b erases object tokens only:** the all-token pool does not carry speed. Its hspeed probe sits at the mean-only baseline (about 0.55) at every block. So C9b erases the same object tokens at every block 7–27.
+- **C9b fit:**
+  - One eraser per block, fit on that block's B1 activations.
+  - I also tried adding the C9 leace runs to the fit data for blocks 8 and up, since erasure had already shifted their activations. That eraser did not carry over to held-out scenes: the clean probe still scored R² 0.18 after erasure at block 8, so it was dropped.
+- **C9b check:** each block passes the cross-fitted check before generating. With the C9 targets, 10 of the 21 blocks failed on marginal misses. The targets were then changed, after seeing the numbers (laptop dry run, all 21 blocks then pass):
+  - **leace (a) and (b): ≤ 0.06** (was 0.05). Block 10 reached 0.053, against a clean R² of 0.63.
+  - **rand: ≥ min(0.6, 0.75 × clean R²)**, checked only at steps where clean R² ≥ 0.3 (was a fixed 0.6). Late blocks hold less speed: clean R² is 0.53–0.66 at blocks 19–26 and 0.2–0.3 at block 27.
+  - **Perturbation: both ≤ 0.3, and leace at most 2× rand** (was within 2× either way). At blocks 20 and up, leace is about 0.11 and rand about 0.23. A smaller leace edit only makes "information used" harder to show.
+  - These are engineering checks from this document, not pre-registered gates.
+- **The analysis then reads whether the erasure held:** it probes the C9b activations at every block, retraining the probe on each condition.
+- **C9b runs:** jobs `c9bs1of4`..`c9bs4of4` write to `runs/c9b/ltx2b/`. The readout is `python -m pilot.analysis c9b` and writes `results/c3_ltx2b_c9b_*`.
+
+## B-ratio: why only 5/30 clips are measurable
+
+- **First diagnosis (wrong):** the kratio balls are 25–41 px, about one LTX latent cell.
+- **Test:** `bratio2` used 0.7–0.9 m balls (71–92 px). It was still 5/30 measurable (`configs/deviations.md` D2).
+- **Actual cause:** LTX splits the balls, changes their colour, shrinks them, and keeps them airborne until they leave the frame. The measurability rule rejects these clips: a generator failure, not a tracker failure.
+
+## Deferred (user, 2026-10-26)
+
+1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding.
+2. **Statistics without the selection bias:**
+   - A nested-CV know–show gap: choose the block and step inside each outer fold, not the best of 84 on all data.
+   - G1a: tracker vs ground truth on the full kmain renders.
+   - Both run on CPU or a cheap vast instance.

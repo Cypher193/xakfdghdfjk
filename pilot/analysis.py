@@ -37,7 +37,7 @@ RUN = Path("runs")
 def fetch():
     from huggingface_hub import snapshot_download
     pats = ["data/scenes/**"]
-    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9".split():
+    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b".split():
         pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
     pats += [f"results/p6_{M}_*.csv", "results/show_ltx_*.csv"]
@@ -236,17 +236,18 @@ def c6():
 
 
 # ---------------------------------------------------------------- C9
-def c9(n_boot=5000):
-    if not any((RUN / "c9" / M).glob("*/meta.json")):
-        print("c9: no c9 runs yet")
+def c9(n_boot=5000, exp="c9"):
+    """C9 readout; exp c9b: the every-block-from-7 eraser (results c3_ltx2b_c9b_*)."""
+    if not any((RUN / exp / M).glob("*/meta.json")):
+        print(f"{exp}: no {exp} runs yet")
         return
-    s = pd.concat([show("c9"), show("b1").query("seed == 0").assign(cond="b1_s0")])
+    s = pd.concat([show(exp), show("b1").query("seed == 0").assign(cond="b1_s0")])
     s = s[s.measurable & s.hspeed.notna()]
     piv = {c: d.set_index("scene") for c, d in s.groupby("cond")}
     conds = [c for c in ("b1_s0", "leace", "rand") if c in piv]
     common = sorted(set.intersection(*[set(piv[c].index) for c in conds]))
     if len(common) < 5:
-        print(f"c9: only {len(common)} scenes measurable in all conditions {conds}; not enough")
+        print(f"{exp}: only {len(common)} scenes measurable in all conditions {conds}; not enough")
         return
     H = {c: piv[c].loc[common, "hspeed"].to_numpy() for c in conds}
     T = {c: piv[c].loc[common, "hspeed_gt"].to_numpy() for c in conds}
@@ -258,8 +259,8 @@ def c9(n_boot=5000):
                  rho_hi=np.percentile(boot[c], 97.5), median_mra=np.median(mra[c]),
                  mra_lo=np.percentile([np.median(mra[c][i]) for i in idx[:1000]], 2.5),
                  mra_hi=np.percentile([np.median(mra[c][i]) for i in idx[:1000]], 97.5)) for c in conds]
-    print(f"C9 readout on the {len(common)} scenes measurable in all conditions")
-    save(pd.DataFrame(rows), "c9_readout")
+    print(f"{exp} readout on the {len(common)} scenes measurable in all conditions")
+    save(pd.DataFrame(rows), f"{exp}_readout")
     diffs = []
     for a, b in (("rand", "leace"), ("b1_s0", "leace"), ("b1_s0", "rand")):
         if a in boot and b in boot:
@@ -267,15 +268,15 @@ def c9(n_boot=5000):
             lo, hi = np.percentile(d, [2.5, 97.5])
             diffs.append(dict(contrast=f"rho({a}) - rho({b})", diff=rho(a, slice(None)) - rho(b, slice(None)),
                               lo=lo, hi=hi, excludes_0=bool(lo > 0 or hi < 0)))
-    save(pd.DataFrame(diffs), "c9_rho_diff")
+    save(pd.DataFrame(diffs), f"{exp}_rho_diff")
     if "leace" in boot and "rand" in boot:
         used = diffs[0]["excludes_0"] and diffs[0]["diff"] > 0
         print("information used (rho(leace) < rho(rand), CI excludes 0):", used)
     # probe MRA on the c9 acts at blocks >= the erased block
-    cl9 = clips(["c9"], "hspeed")
+    cl9 = clips([exp], "hspeed")
     cl1 = [c for c in clips(["b1"], "hspeed") if c["meta"]["seed"] == 0]
     erased = int(cl9[0]["meta"]["block"])
-    f9, y9, g9 = probe.load(str(RUN), M, ["c9"], "hspeed")
+    f9, y9, g9 = probe.load(str(RUN), M, [exp], "hspeed")
     f1, y1, g1 = probe.load(str(RUN), M, ["b1"], "hspeed")
     s0 = np.array([c["meta"]["seed"] == 0 for c in clips(["b1"], "hspeed")])
     sets = {c: (f9, y9, g9, np.array([x["meta"].get("cond") == c for x in cl9])) for c in ("leace", "rand")}
@@ -286,9 +287,9 @@ def c9(n_boot=5000):
         for b in range(erased, A.shape[0]):
             for st in range(A.shape[1]):
                 rows.append(dict(cond=c, block=b, step=st, n=int(mask.sum()), probe_mra=probe.score(A[b, st][mask], y[mask], g[mask])[0]))
-    print(f"C9 probe MRA on c9 acts, blocks >= {erased} (probe fit within each condition)")
+    print(f"{exp} probe MRA on {exp} acts, blocks >= {erased} (probe fit within each condition)")
     df = pd.DataFrame(rows)
-    df.to_csv(f"{OUT}c9_probe.csv", index=False)
+    df.to_csv(f"{OUT}{exp}_probe.csv", index=False)
     print(df.groupby("cond").probe_mra.agg(["mean", "max"]).join(df.groupby("cond").apply(lambda d: d.loc[d.probe_mra.idxmax(), ["block", "step"]], include_groups=False)).to_string())
 
 
@@ -384,10 +385,10 @@ def selftest():
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "gates", "all", "selftest"])
+    ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
     ap.add_argument("--no-fetch", action="store_true")
     a = ap.parse_args()
-    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, gates=gates, selftest=selftest)
-    for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "gates"]) if a.cmd == "all" else [a.cmd]:
+    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates, selftest=selftest)
+    for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
         fns[name]()

@@ -143,9 +143,9 @@ def monitor(a):
 
 
 def worker_label(a, k):
-    m = re.fullmatch(r"c9s(\d+)of(\d+)", a.job)      # phase 3 C9 jobs: monitor block "c9"
+    m = re.fullmatch(r"(c9b?)s(\d+)of(\d+)", a.job)    # phase 3 C9 / C9b jobs: monitor block "c9" / "c9b"
     if m:
-        return f"kvs-c9-{m[1]}of{m[2]}"
+        return f"kvs-{m[1]}-{m[2]}of{m[3]}"
     m = re.fullmatch(r"s(\d+)of(\d+)", a.job)      # phase 2 shard jobs: one monitor block "ltx2"
     return f"kvs-ltx2-{m[1]}of{m[2]}" if m else f"kvs-ltx{a.job}-{k}of{a.n}"
 

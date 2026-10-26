@@ -1,11 +1,20 @@
-"""CPU check: the erase hook changes exactly the object tokens by r(h) - h, and a generate call with it runs.  python -m tests.test_leace"""
+﻿"""CPU check: the erase hook changes exactly the object tokens by r(h) - h, and a generate call with it runs.  python -m tests.test_leace"""
 import numpy as np
 import torch
 
 from pilot import erase
-from pilot.leace import erase_hook
+from pilot.leace import check_ok, erase_hook, rand_ok
 from pilot.models import Generator, object_token_mask, token_grid
 from tests import tiny
+
+# check targets: res[cond, step] = clean, (a), (b), pert; rand checked only where clean >= 0.3, at min(0.6, 0.75 clean)
+r = lambda *rows: np.array([[[0, 0, 0, 0]] * len(rows), rows], float)
+assert rand_ok(r([0.8, 0.65, 0.6, 0.2], [0.55, 0.42, 0.42, 0.2], [0.2, 0.0, -0.1, 0.2]))
+assert not rand_ok(r([0.8, 0.59, 0.7, 0.2])) and not rand_ok(r([0.5, 0.37, 0.45, 0.2]))
+res = lambda lea, rnd: np.array([[lea], [rnd]], float)
+assert check_ok(res([0.7, 0.05, -0.04, 0.11], [0.7, 0.65, 0.62, 0.24]))            # small leace edit: fine
+assert not check_ok(res([0.7, 0.07, -0.04, 0.11], [0.7, 0.65, 0.62, 0.24]))        # leace leaves speed
+assert not check_ok(res([0.7, 0.05, -0.04, 0.25], [0.7, 0.65, 0.62, 0.12]))        # leace edit > 2x rand
 
 RUN = {"capture_fractions": [0.25, 0.5, 0.75]}
 for name, build in tiny.BUILDERS.items():

@@ -44,7 +44,7 @@ elif os.environ.get("LTX_JOB"):
     if re.fullmatch(r"s\d+of\d+", j):     # phase 2 shard: only the old clips' meta/score (skip check, scorer), no videos
         PATTERNS = base + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json")]
         PATTERNS.append("assets_cache/**")  # Poly Haven lists + maps from the laptop: same choices as the pilot, no downloads
-    if j.startswith("c9s"):               # phase 3 C9: pull the B1 fit data (acts + meta, no videos) and the input renders only
+    if re.fullmatch(r"c9b?s\d+of\d+", j):   # phase 3 C9 / C9b: the B1 fit data (acts + meta, no videos), input renders
         PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4", "runs/b1/ltx2b/*/acts.npz",
                     "runs/b1/ltx2b/*/meta.json", "results/p6_ltx2b_hspeed_obj.csv"] + mine
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]

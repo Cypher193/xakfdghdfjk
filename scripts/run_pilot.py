@@ -136,7 +136,8 @@ LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
             "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [], "bratio2": ["runs/bratio2/ltx2b"],
             **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)},
-            **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
+            **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)},
+            **{f"c9bs{k}of{C9_SHARDS}": ["runs/c9b/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
 
 
@@ -201,15 +202,17 @@ def _shard_jobs():
 
 
 def _c9_jobs():
-    """Phase 3, C9 (docs/phase3.md): shard K/4 of the kmain scenes, seed 0, cond leace + rand = 2 clips per scene."""
+    """Phase 3, C9 (docs/phase3.md): shard K/4 of the kmain scenes, seed 0, cond leace + rand = 2 clips per scene.
+    C9b: the same with one eraser per block 7-27."""
     jobs = {}
-    for k in range(1, C9_SHARDS + 1):
-        clips, name = 2 * len(range(k - 1, n_scenes("b1"), C9_SHARDS)), f"c9s{k}of{C9_SHARDS}"
-        jobs[name] = [
-            dict(name="c9:ltx2b", kind="gen", model="ltx2b", clips=clips, out=["runs/c9/ltx2b"], per_s=40,
-                 cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--shard", f"{k}/{C9_SHARDS}"]),
-            cmd(f"score:{name}", ["-m", "pilot.score", "--models", "ltx2b", "--table", f"results/show_ltx_{name}.csv"],
-                10 * clips)]
+    for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"])):
+        for k in range(1, C9_SHARDS + 1):
+            clips, name = 2 * len(range(k - 1, n_scenes("b1"), C9_SHARDS)), f"{exp}s{k}of{C9_SHARDS}"
+            jobs[name] = [
+                dict(name=f"{exp}:ltx2b", kind="gen", model="ltx2b", clips=clips, out=[f"runs/{exp}/ltx2b"], per_s=40,
+                     cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--shard", f"{k}/{C9_SHARDS}", *extra]),
+                cmd(f"score:{name}", ["-m", "pilot.score", "--models", "ltx2b", "--table", f"results/show_ltx_{name}.csv"],
+                    10 * clips)]
     return jobs
 
 
