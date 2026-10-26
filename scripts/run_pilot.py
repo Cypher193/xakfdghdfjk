@@ -173,15 +173,19 @@ def _ltx_jobs():
     return jobs
 
 
+def kmain_ids(k, n_shards, n):
+    """Scene ids of shard k (pilot.shard on pilot.shard.scene_list order: cv_00, ca_00, cv_01, ...)."""
+    return [f"kmain_{'cv' if p % 2 == 0 else 'ca'}_{p // 2:02d}" for p in range(k - 1, n, n_shards)]
+
+
 def _shard_jobs():
     """Phase 2: shard K/7 of the 100 kmain scenes renders (input window + full clip), generates b1, b2nl and b3 and scores
     its own scenes. The 30 pilot scenes are skipped at run time (their meta.json is pulled); probe2 reruns the probes."""
     n = n_scenes("b1")
     jobs = {}
     for k in range(1, SHARDS + 1):
-        pos = range(k - 1, n, SHARDS)                          # positions in pilot.shard.scene_list order (cv_00, ca_00, ...)
-        ids = [f"kmain_{'cv' if p % 2 == 0 else 'ca'}_{p // 2:02d}" for p in pos]
-        new = sum(p >= 30 for p in pos)                        # the first 30 positions are the pilot scenes
+        ids = kmain_ids(k, SHARDS, n)
+        new = sum(p >= 30 for p in range(k - 1, n, SHARDS))    # the first 30 positions are the pilot scenes
         d, sh = f"data/shard_{k}", f"{k}/{SHARDS}"            # outside data/scenes: never pushed
         render = lambda name, flags, per: dict(
             name=name, kind="cmd", est_s=per * new, cmd=["bash", "-c",
@@ -207,9 +211,11 @@ def _c9_jobs():
     jobs = {}
     for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"])):
         for k in range(1, C9_SHARDS + 1):
-            clips, name = 2 * len(range(k - 1, n_scenes("b1"), C9_SHARDS)), f"{exp}s{k}of{C9_SHARDS}"
-            jobs[name] = [
+            ids = [f"{s}_{c}" for s in kmain_ids(k, C9_SHARDS, n_scenes("b1")) for c in ("leace", "rand")]
+            clips, name = len(ids), f"{exp}s{k}of{C9_SHARDS}"
+            jobs[name] = [    # ids: the done-earlier check counts only this shard's clips (the pod pulls every shard's meta)
                 dict(name=f"{exp}:ltx2b", kind="gen", model="ltx2b", clips=clips, out=[f"runs/{exp}/ltx2b"], per_s=40,
+                     ids=ids, seeds=[0],
                      cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--shard", f"{k}/{C9_SHARDS}", *extra]),
                 cmd(f"score:{name}", ["-m", "pilot.score", "--models", "ltx2b", "--table", f"results/show_ltx_{name}.csv"],
                     10 * clips)]
