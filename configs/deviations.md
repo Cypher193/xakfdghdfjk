@@ -29,3 +29,7 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 - **What is not changed:** the camera, the throw law, the tracker and every threshold.
 - **Side effect:** the speed cap narrows the throw-speed ratio to about 1.33–1.43 (was 1.3–1.5).
 - **Approved by:** the user, on 2026-10-26.
+- **Outcome:** still 5/30 measurable. The diagnosis was wrong: the bigger balls are clearly visible, but LTX breaks them.
+  - Balls split in two, change colour (red to white), shrink as if moving away from the camera, and fly off the top of the frame because they stay airborne far too long.
+  - These failures trip the area rule (0.5–2× the frame-0 area) of the measurability gate. They are generator failures, not tracker failures.
+  - Among the 5 measurable clips, median sym MRA is t_ratio 0.69 and h_ratio 0.81 (was 0.56 and 0.75).
