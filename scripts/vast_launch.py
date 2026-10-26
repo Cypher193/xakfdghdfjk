@@ -31,8 +31,9 @@ SRC = "https://raw.githubusercontent.com/Cypher193/xakfdghdfjk/main/scripts/moni
 ONSTART = ("pip install -q vastai; python -c \"import urllib.request as u;u.urlretrieve('{src}','/monitor.py')\" && "
            "{{ env | grep -E '^(MONITOR_TOKEN|MONITOR_VAST_KEY|MONITOR_NTFY)=' >> /etc/environment; "
            "cd / && nohup python /monitor.py --port {port} > /monitor.out 2>&1 & }}")
-# hosts that failed in phases 1/2: image pulls that never finish, the flaky 137.175.22.196 network
-BAD_MACHINES = {153150, 113571, 84216, 151184, 52126, 143568, 147283, 138174}
+# hosts that failed in phases 1/2: image pulls that never finish, the flaky 137.175.22.196 network;
+# 33953: 3090 stuck at 450 MHz (225 s/clip vs ~60), C9b 2026-10-26
+BAD_MACHINES = {153150, 113571, 84216, 151184, 52126, 143568, 147283, 138174, 33953}
 TEMPLATE = "d1b2fe045f890349b734850a9d312072"
 POD_SCRIPT = "scripts/ltx_pod.sh"      # swap for scripts/full_pod.sh later
 REPO = "https://github.com/Cypher193/xakfdghdfjk.git"

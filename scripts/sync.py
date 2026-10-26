@@ -48,6 +48,7 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4", "runs/b1/ltx2b/*/acts.npz",
                     "runs/b1/ltx2b/*/meta.json", "results/p6_ltx2b_hspeed_obj.csv"] + mine
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
+        PATTERNS += [f"{r}/*/meta.json" for r in LTX_RUNS[j]]   # a relaunched shard skips clips an earlier pod pushed
     if j == "score2":                     # every LTX clip with meta.json but no score.json on HF, video + meta only
         BAD = {"runs/b1/ltx2b/kmain_cv_41_s2"}       # HF holds a size-inconsistent video.mp4 there: unreadable
         fs = HfApi().list_repo_files(repo_id(), repo_type="dataset")
