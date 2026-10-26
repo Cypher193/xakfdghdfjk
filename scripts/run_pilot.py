@@ -214,7 +214,8 @@ def _c9_jobs():
             ids = [f"{s}_{c}" for s in kmain_ids(k, C9_SHARDS, n_scenes("b1")) for c in ("leace", "rand")]
             clips, name = len(ids), f"{exp}s{k}of{C9_SHARDS}"
             jobs[name] = [    # ids: the done-earlier check counts only this shard's clips (the pod pulls every shard's meta)
-                dict(name=f"{exp}:ltx2b", kind="gen", model="ltx2b", clips=clips, out=[f"runs/{exp}/ltx2b"], per_s=40,
+                # per_s 90: ~50-70 s/clip on a 3090 plus the C9b eraser fit (21 blocks: 15-60 min of CPU per pod)
+                dict(name=f"{exp}:ltx2b", kind="gen", model="ltx2b", clips=clips, out=[f"runs/{exp}/ltx2b"], per_s=90,
                      ids=ids, seeds=[0],
                      cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--shard", f"{k}/{C9_SHARDS}", *extra]),
                 cmd(f"score:{name}", ["-m", "pilot.score", "--models", "ltx2b", "--table", f"results/show_ltx_{name}.csv"],
