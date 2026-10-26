@@ -55,7 +55,10 @@ elif os.environ.get("LTX_JOB"):
         todo = sorted(meta - {f.rsplit("/", 1)[0] for f in fs if f.endswith("/score.json")} - BAD)
         PATTERNS = ["data/scenes/**"] + mine + [f"{d}/{x}" for d in todo for x in ("video.mp4", "meta.json")]
         PUSH_PATTERNS = mine + [f"{d}/score.json" for d in todo]
-    if j == "probe2":                     # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
+    if j == "bratio2":                    # renders its own inputs: scenes + Poly Haven cache in; renders + runs out
+        PATTERNS = ["data/scenes/kratio2/**", "assets_cache/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
+        PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
+    if j == "probe2":                    # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
         PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 

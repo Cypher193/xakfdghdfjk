@@ -249,4 +249,5 @@ experiments:
   b3:      {scenes: kmain, text: b2nl}      # the b2nl description (plain words) WITH the input video
   b5:      {scenes: kgrav, text: caption}
   bratio:  {scenes: kratio, text: caption}
+  bratio2: {scenes: kratio2, text: caption}   # B-ratio with 0.7-0.9 m balls (pilot/scenes.py kratio2)
   b1real:  {scenes: real, text: caption, seeds: [0, 1]}

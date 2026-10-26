@@ -134,7 +134,7 @@ C9_SHARDS = 4                                                # phase 3: C9 (LEAC
 SHARDS = 7                                                   # phase 2 (2026-10-25): kmain 100 scenes over 7 pods
 LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
-            "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [],
+            "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [], "bratio2": ["runs/bratio2/ltx2b"],
             **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)},
             **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
@@ -160,6 +160,11 @@ def _ltx_jobs():
                       cmd=[PY, "-m", "pilot.steer", "--model", "ltx2b", "--scenes", "30", "--alphas",
                            "-2", "-1", "1", "2"]))              # needs results/p6_ltx2b_hspeed_obj.csv: after the probes
     jobs["probe"] = probe
+    # bigger-ball B-ratio (2026-10-26): render the input windows on the pod, then generate; the 10 s/clip score is appended below
+    jobs["bratio2"] = [dict(name="render-in", kind="cmd", est_s=900, cmd=[
+                           "bash", "-c", "${BPY_PYTHON:-/opt/bpy/bin/python} -m pilot.render data/scenes/kratio2 "
+                           "--out data/renders/kratio2 --gpu --fps 48 --seconds 1.125 --suffix _input"]),
+                       gen("ltx2b", "bratio2", None, [0, 1, 2])]
     for j, steps in jobs.items():       # p7 clips live in model dirs ltx2b_noise / ltx2b_inv, so gen4 scores those too
         models = ["ltx2b", "ltx2b_noise", "ltx2b_inv"] if j == "gen4" else ["ltx2b"]
         steps.append(cmd(f"score:{j}", ["-m", "pilot.score", "--models", *models, "--table", f"results/show_ltx_{j}.csv"],

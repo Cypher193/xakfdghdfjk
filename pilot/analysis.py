@@ -37,7 +37,7 @@ RUN = Path("runs")
 def fetch():
     from huggingface_hub import snapshot_download
     pats = ["data/scenes/**"]
-    for e in "b1 b5 b2nl b3 b1real bratio steer c9".split():
+    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9".split():
         pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
     pats += [f"results/p6_{M}_*.csv", "results/show_ltx_*.csv"]
@@ -302,10 +302,11 @@ def gates():
 
     add("G1a tracker vs GT", "-", f">= {y['G1_tracker']['a_min_sym_mra_vs_gt']} sym MRA", "not evaluated",
         "needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not LTX clips)")
-    meas = {e: show(e).measurable.mean() for e in ("b1", "b5", "b2nl", "b3", "bratio") if len(show(e))}
+    ratio = "bratio2" if len(show("bratio2")) else "bratio"      # bratio2 (bigger balls) supersedes bratio
+    meas = {e: show(e).measurable.mean() for e in ("b1", "b5", "b2nl", "b3", ratio) if len(show(e))}
     thr = y["G1_tracker"]["b_min_measurability"]
     add("G1b measurability", ", ".join(f"{e} {v:.2f}" for e, v in meas.items()), f">= {thr} (verdict: min over exps)",
-        "PASS" if min(meas.values()) >= thr else "FAIL", "runs/{b1,b5,b2nl,b3,bratio}/ltx2b/*/score.json")
+        "PASS" if min(meas.values()) >= thr else "FAIL", f"runs/{{b1,b5,b2nl,b3,{ratio}}}/ltx2b/*/score.json")
     b1 = show("b1")
     m1 = b1[b1.measurable & b1.hspeed_sym_mra.notna()]
     med = m1.hspeed_sym_mra.median()
