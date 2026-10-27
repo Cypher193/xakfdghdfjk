@@ -234,6 +234,51 @@ def worker(a):
             print(f"{label}: no instance after 3 attempts")
 
 
+# image check (smoke): torch + CUDA, the other imports, sshd/ffmpeg/git present, no RunPod start.sh, a 2-frame GPU render
+SMOKE = ("cd /workspace && git clone {repo} cvpr_vail && cd cvpr_vail && ( nvidia-smi --query-gpu=name,driver_version "
+         "--format=csv,noheader; python -c \"import torch, diffusers, transformers, cv2, sklearn, huggingface_hub, vastai; "
+         "x = torch.randn(2048, 2048, device='cuda'); print('torch', torch.__version__, torch.cuda.get_device_name(0), "
+         "'matmul', float((x @ x).sum()))\"; which sshd ffmpeg git; ls -la /start.sh; df -h / | tail -1; "
+         "python -m pilot.scenes --out data/scenes && ${{BPY_PYTHON:-/opt/bpy/bin/python}} -m pilot.render "
+         "data/scenes/kmain/kmain_cv_00.json --out /workspace/r --gpu --frames 2 --fps 48 --seconds 1.125 --suffix _input "
+         "&& ls -la /workspace/r ) > /workspace/smoke.out 2>&1; echo SMOKE_DONE >> /workspace/smoke.out")
+
+
+def smoke(a):
+    """Boot the cheapest matching host on the template, run SMOKE, print /workspace/smoke.out, destroy. Run after every
+    image build; also times the image pull (create -> running)."""
+    o = worker_offers(a)[0]
+    r = vast("create", "instance", o["id"], "--template_hash", TEMPLATE, "--disk", a.disk, "--label", "kvs-smoke",
+             "--onstart-cmd", SMOKE.format(repo=REPO))
+    iid = (r or {}).get("new_contract") or sys.exit(f"create failed: {r}")
+    print(f"kvs-smoke: #{iid} on offer {o['id']} m{o['machine_id']} {o['gpu_name']} ${o['dph_total']:.3f}/h "
+          f"{o.get('geolocation')} {o['inet_down']:.0f} Mb/s", flush=True)
+    attach_ssh(iid)
+    t0, up = time.time(), None
+    try:
+        while time.time() - t0 < 1800:
+            inst = vast("show", "instance", iid) or {}
+            inst = inst.get("instances", inst) if isinstance(inst, dict) else {}
+            hp, ip = port_of(inst, 22), (inst.get("public_ipaddr") or "").strip()
+            if inst.get("actual_status") == "running" and hp:
+                if up is None:
+                    up = time.time()
+                    print(f"running after {(up - t0) / 60:.1f} min (image pull + boot)", flush=True)
+                r = subprocess.run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                                    "-p", str(hp), f"root@{ip}", "cat /workspace/smoke.out 2>/dev/null"],
+                                   capture_output=True, text=True)
+                if "SMOKE_DONE" in r.stdout:
+                    print(f"checks done {(time.time() - up) / 60:.1f} min after running\n" + r.stdout)
+                    break
+            elif inst.get("actual_status") in ("exited", "offline"):
+                sys.exit(f"#{iid} {inst.get('actual_status')}")
+            time.sleep(20)
+        else:
+            print(f"#{iid}: no result after 30 min")
+    finally:
+        print("destroy:", vast("destroy", "instance", iid, "-y"))
+
+
 def ls(_):
     allx = instances()
     print(f"{len(allx)} instances on the account")
@@ -268,19 +313,24 @@ def main():
     m.add_argument("--image", default="python:3.11-slim")
     m.add_argument("--disk", type=int, default=10)
     m.set_defaults(f=monitor)
+    def offer_args(p, disk):
+        p.add_argument("--gpu", default="RTX 3090")
+        p.add_argument("--vram", type=int, default=24)
+        p.add_argument("--ram", type=int, default=32)
+        p.add_argument("--disk", type=int, default=disk)
+        p.add_argument("--geo", help="2-letter country, e.g. US (default: anywhere but CN)")
+        p.add_argument("--not-machine", type=int, nargs="*", default=[], help="machine_ids to skip (e.g. a host that never finished pulling the image)")
     w = sub.add_parser("worker")
     w.add_argument("job")
     w.add_argument("--n", type=int, default=1)
-    w.add_argument("--gpu", default="RTX 3090")
-    w.add_argument("--vram", type=int, default=24)
-    w.add_argument("--ram", type=int, default=32)
-    w.add_argument("--disk", type=int, default=120)
-    w.add_argument("--geo", help="2-letter country, e.g. US (default: anywhere but CN)")
-    w.add_argument("--not-machine", type=int, nargs="*", default=[], help="machine_ids to skip (e.g. a host that never finished pulling the image)")
+    offer_args(w, 120)
     w.add_argument("--budget-h", type=float, default=6)
     w.add_argument("--monitor-url")
     w.add_argument("--dry-run", action="store_true")
     w.set_defaults(f=worker)
+    s = sub.add_parser("smoke", help="image check on the cheapest matching host, then destroy (~$0.1)")
+    offer_args(s, 30)
+    s.set_defaults(f=smoke)
     sub.add_parser("ls").set_defaults(f=ls)
     d = sub.add_parser("destroy")
     d.add_argument("id", type=int)
