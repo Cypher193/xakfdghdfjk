@@ -92,3 +92,5 @@ Not yet written: random-init probe baseline, automatic gates report (G1-G10 are 
 `docs/vast_plan.md` (full run on vast.ai: live quote `scripts/vast_quote.py`, waves, shards) and `docs/monitor_design.md`
 (phone-reachable run monitor). `scripts/vast_launch.py monitor` creates the monitor instance; every pod's `guard.py`
 heartbeats to `MONITOR_URL`; `scripts/monitor.py` serves the page and reaps dead instances (`--selftest` checks it).
+`scripts/vast_launch.py worker JOB` launches one LTX-plan job per host; `smoke` (~$0.1) checks a freshly built image on
+the cheapest host (torch + CUDA, imports, sshd, a 2-frame Blender GPU render) and destroys it; `ls` / `destroy ID`.
