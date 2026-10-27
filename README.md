@@ -21,24 +21,17 @@ commit them before any pilot run and do not edit thresholds after seeing data.
 | `pilot/metrics.py` | symmetric MRA, original MRA, SILog, γ, residual, CRPS, bootstrap, Holm (`python -m pilot.metrics` self-check) |
 | `pilot/download.py` | Physics-IQ and QuantiPhy val clips, real-clip manifest with hand-drawn boxes |
 
-## RunPod setup
+## Pod image and setup
 
 Image: `ghcr.io/cypher193/cvpr_vail:latest`, built by GitHub Actions from the [Dockerfile](Dockerfile) on every
-change to it or to `requirements.txt` (torch 2.8 / CUDA 12.8 base with SSH, all Python packages, Blender in `/opt/bpy`).
-The image holds dependencies only; code and data live on the network volume.
+change to it or to `requirements.txt`: `pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime` plus sshd, all Python packages,
+Blender in `/opt/bpy`. About 5.5 GB compressed; the RunPod-based image before 2026-10-27 was 11 GB, and its 4 GB torch
+layer stalled on cold vast.ai hosts. The image holds dependencies only: code is cloned on the pod, data is synced to HF.
+It no longer carries RunPod's start script; a RunPod pod would need an older `ghcr.io/cypher193/cvpr_vail:<sha>` tag.
 
 Data lives on a private Hugging Face dataset repo (`CypherNotHere/cvpr-vail-pilot`, override with `HF_DATA_REPO`):
 `setup_runpod.sh` pulls it and starts a background push every 15 min (`scripts/sync.py`). Pods are disposable,
 so any datacenter and community cloud work. Model weights (~100 GB) are re-downloaded on each new pod.
-
-Pod template:
-- Container image: `ghcr.io/cypher193/cvpr_vail:latest` (if the package is private, add GHCR registry credentials
-  in RunPod: username = GitHub user, password = a classic token with `read:packages`; or make the package public)
-- Container disk 200 GB, no volume (data is synced to HF, so nothing on the pod needs to persist)
-- Expose TCP 22 (SSH) and HTTP 8888 (Jupyter)
-- Environment: `HF_TOKEN = {{ RUNPOD_SECRET_HF_TOKEN }}` (store the token as a RunPod secret)
-- Filter hosts to CUDA 12.8 or newer
-- One pod can do everything if its GPU has RT cores and >= 48 GB (RTX A6000, L40S); A100 80 GB also works.
 
 Before terminating a pod: `python scripts/sync.py push`.
 

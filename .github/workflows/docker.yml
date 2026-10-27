@@ -1,7 +1,7 @@
 name: docker image
 
-# Builds the RunPod image and pushes it to ghcr.io/<owner>/cvpr_vail:latest when the Dockerfile or
-# requirements change. The base image is ~15 GB, so the runner's preinstalled tools are removed first.
+# Builds the pod image and pushes it to ghcr.io/<owner>/cvpr_vail:latest (and :<sha>) when the Dockerfile or
+# requirements change. The build needs ~15 GB of disk, so the runner's preinstalled tools are removed first.
 on:
   push:
     branches: [main]
