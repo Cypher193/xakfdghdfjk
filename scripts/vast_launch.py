@@ -25,6 +25,8 @@ import urllib.request
 from pathlib import Path
 
 VASTAI = shutil.which("vastai") or str(Path.home() / "AppData/Roaming/Python/Python313/Scripts/vastai.exe")
+# monitor host: the cheapest GPU box with a direct port. vast's CPU-only offers (num_gpus=0, ~$0.01/h) all have
+# direct_port_count 0 (2026-10-27), so the page would not be reachable from outside.
 QUERY = ("rentable=true verified=true num_gpus=1 reliability>0.98 direct_port_count>=1 static_ip=true "
          "inet_down>=100 disk_space>=10")
 SRC = "https://raw.githubusercontent.com/Cypher193/xakfdghdfjk/main/scripts/monitor.py"
