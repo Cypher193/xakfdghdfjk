@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -148,7 +149,8 @@ def collect(st, status, prev, cur):
 
 
 def post(url, payload):
-    req = urllib.request.Request(url.rstrip("/") + "/hb", json.dumps(payload).encode(), method="POST", headers={
+    u = urllib.parse.urlsplit(url)             # the page URL carries ?t=TOKEN; the API path is /hb on the same origin
+    req = urllib.request.Request(f"{u.scheme}://{u.netloc}/hb", json.dumps(payload).encode(), method="POST", headers={
         "Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("MONITOR_TOKEN", "")})
     urllib.request.urlopen(req, timeout=5).read()
 

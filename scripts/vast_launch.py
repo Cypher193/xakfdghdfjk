@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -188,8 +189,15 @@ def log_instance(rec):
     INSTANCES_JSON.write_text(json.dumps(rows + [rec], indent=1))
 
 
+def origin(url):
+    """scheme://host:port of the monitor: the page URL carries ?t=TOKEN, which must not reach the pods' env or /hb."""
+    u = urllib.parse.urlsplit(url)
+    return f"{u.scheme}://{u.netloc}"
+
+
 def worker(a):
     url = a.monitor_url or os.environ.get("MONITOR_URL")
+    url = origin(url) if url else url
     if not url:
         print("WARNING: no --monitor-url / MONITOR_URL, workers will not report to the monitor")
     offers = worker_offers(a)
