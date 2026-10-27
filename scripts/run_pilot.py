@@ -141,9 +141,9 @@ LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
 
 
-def _probe_steps():
+def _probe_steps(model="ltx2b"):
     return [cmd(f"probe:{t}:{'+'.join(e)}:{pool}",
-                ["-m", "pilot.probe", "--model", "ltx2b", "--exps", *e, "--target", t, "--pool", pool], 300)
+                ["-m", "pilot.probe", "--model", model, "--exps", *e, "--target", t, "--pool", pool], 300)
             for e, t in ((["b1"], "hspeed"), (["b1", "b5"], "g"), (["b1", "b5"], "e")) for pool in ("obj", "all")]
 
 
@@ -176,6 +176,11 @@ def _ltx_jobs():
 def kmain_ids(k, n_shards, n):
     """Scene ids of shard k (pilot.shard on pilot.shard.scene_list order: cv_00, ca_00, cv_01, ...)."""
     return [f"kmain_{'cv' if p % 2 == 0 else 'ca'}_{p // 2:02d}" for p in range(k - 1, n, n_shards)]
+
+
+def kgrav_ids(k, n_shards):
+    """Scene ids of shard k of kgrav (pilot.shard on its sorted file names: kgrav_00_g0.5, kgrav_00_g1.0, ...)."""
+    return [f"kgrav_{i:02d}_g{g}" for i in range(10) for g in (0.5, 1.0, 2.0)][k - 1::n_shards]
 
 
 def _shard_jobs():
@@ -223,7 +228,35 @@ def _c9_jobs():
     return jobs
 
 
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs()
+MODEL_SHARDS = {"cosmos2b": 5, "vace13": 5}      # odd: kmain interleaves cv/ca, so every shard gets both families
+
+
+def _model_jobs(model, n):
+    """Core plan of one model over n pods, seed 0: shard K/n of B1 (kmain) and B5 (kgrav), shard 1 also b1real, then the
+    shard scores its own clips. {model}probe probes the pushed acts."""
+    jobs = {}
+    for k in range(1, n + 1):
+        sh, name = f"{k}/{n}", f"{model}s{k}of{n}"
+        steps = [gen(model, "b1", None, [0], shard=sh, ids=kmain_ids(k, n, n_scenes("b1"))),
+                 gen(model, "b5", None, [0], shard=sh, ids=kgrav_ids(k, n))] + \
+                ([gen(model, "b1real", None, [0])] if k == 1 else [])
+        steps.append(cmd(f"score:{name}", ["-m", "pilot.score", "--models", model, "--table",   # _ltx_{job}: sync.py's own files
+                                           f"results/show_ltx_{name}.csv"], 10 * sum(s["clips"] for s in steps)))
+        jobs[name] = steps
+    jobs[f"{model}probe"] = _probe_steps(model)
+    return jobs
+
+
+MODEL_JOBS = {j: s for m, n in MODEL_SHARDS.items() for j, s in _model_jobs(m, n).items()}   # sync.py: table-driven
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS
+LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", []))) for j, steps in MODEL_JOBS.items()}
+
+
+def job_repos(job):
+    """HF repos a job's pod downloads (setup_runpod.sh): the models its steps generate with, plus SAM2 for scoring."""
+    models = yaml.safe_load(open(Path(__file__).resolve().parents[1] / "configs/pilot.yaml"))["models"]
+    gen_models = dict.fromkeys(s["model"] for s in LTX_JOBS[job] if s.get("model") in models)   # not p7_ltx2b
+    return [(models[m]["repo"], models[m].get("revision")) for m in gen_models] + [("facebook/sam2.1-hiera-large", None)]
 
 
 def tag(plan, tier):

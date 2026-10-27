@@ -6,7 +6,8 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
-LTX pods (LTX_JOB=gen1..gen4|probe|probe2|sKofN, scripts/ltx_pod.sh): PATTERNS (pull) = inputs + the job's runs, logs and
+LTX pods (LTX_JOB=gen1..gen4|probe|probe2|sKofN|{model}sKofN|{model}probe, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
+patterns derived from the job's steps): PATTERNS (pull) = inputs + the job's runs, logs and
 results (probe, probe2: also every runs/*/ltx2b; shards sKofN: only runs/*/ltx2b/*/meta.json and score.json, so
 PATTERNS is not a superset of PUSH_PATTERNS); PUSH_PATTERNS = only the job's own files.
 Screen pods (SCREEN_TIER=A|B|all, set by scripts/screen_pod.sh) pull the inputs plus their own runs, logs and table
@@ -35,7 +36,7 @@ if os.environ.get("SCREEN_TIER"):
     PATTERNS = ["data/scenes/**", "data/renders/**", "data/real/**", f"data/logs/*{t}*", f"results/*{t}*"] + \
         [f"runs/*/{m}/**" for m in screen_models(os.environ["SCREEN_TIER"])]
 elif os.environ.get("LTX_JOB"):
-    from run_pilot import LTX_PULL_EXTRA, LTX_RUNS, tag
+    from run_pilot import LTX_PULL_EXTRA, LTX_RUNS, MODEL_JOBS, tag
     j = os.environ["LTX_JOB"]
     base = ["data/scenes/**", "data/renders/**", "data/real/**"]
     mine = [f"data/logs/*{tag('ltx', j)}*", f"results/*{tag('ltx', j)}*"]
@@ -65,6 +66,18 @@ elif os.environ.get("LTX_JOB"):
         PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
     if j == "probe2":                    # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
         PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
+    gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
+    if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;
+        import yaml                       # a relaunch scores clips an earlier pod never scored; ~3 MB a clip). Not the
+        exps = yaml.safe_load(open(ROOT / "configs/pilot.yaml"))["experiments"]   # shard's ids: on a fresh pod this runs
+        scenes = dict.fromkeys(exps[s["name"].split(":")[0]]["scenes"] for s in gens)   # before data/scenes exists
+        PATTERNS = ["data/scenes/**", "data/real/**"] + [f"data/renders/{x}/*_input.mp4" for x in scenes if x != "real"] \
+            + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json", "video.mp4")]
+        PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
+    elif j in MODEL_JOBS:                 # {model}probe: as probe2, for that model's B1 + B5 clips
+        m = j.removesuffix("probe")
+        PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json")]
+        PUSH_PATTERNS = mine + [f"results/p6_{m}*"]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 
 
