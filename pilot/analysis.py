@@ -1,15 +1,16 @@
-"""Phase 3 CPU analyses for LTX-2B (docs/phase3.md: C5, C6, C9 readout, statistics and gates report).
+"""Phase 3 CPU analyses per model (docs/phase3.md: C5, C6, C9 readout, statistics and gates report).
 
     python -m pilot.analysis fetch      # download what the analyses need from HF (never video.mp4)
     python -m pilot.analysis gap        # know-show gap per target (B1 hspeed; B1+B5 g, e), Holm across targets
     python -m pilot.analysis c5         # final-latent probe vs mid-network probe vs show
     python -m pilot.analysis c6         # conditional V-information beyond VAE, online MDL, p7 noise vs inv
     python -m pilot.analysis c9         # LEACE readout (skips cleanly if runs/c9 is absent)
-    python -m pilot.analysis gates      # results/gates_ltx2b.md
+    python -m pilot.analysis gates      # results/gates_{model}.md
     python -m pilot.analysis all [--no-fetch]
     python -m pilot.analysis selftest
+    ... --model cosmos2b                # any subcommand; default ltx2b. Missing inputs skip with one line.
 
-Outputs: results/c3_ltx2b_*.csv / .json / gates_ltx2b.md. Probe targets are ground truth, splits are by scene.
+Outputs: results/c3_{model}_*.csv / .json / gates_{model}.md. Probe targets are ground truth, splits are by scene.
 """
 import argparse
 import json
@@ -26,9 +27,9 @@ from sklearn.preprocessing import StandardScaler
 
 from pilot import metrics, probe
 
-M = "ltx2b"
+M = "ltx2b"                  # both reset from --model in __main__
 REPO = "CypherNotHere/cvpr-vail-pilot"
-OUT = "results/c3_ltx2b_"
+OUT = f"results/c3_{M}_"
 TARGET_EXPS = {"hspeed": ["b1"], "g": ["b1", "b5"], "e": ["b1", "b5"]}
 RUN = Path("runs")
 
@@ -40,16 +41,16 @@ def fetch():
     for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b".split():
         pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
-    pats += [f"results/p6_{M}_*.csv", "results/show_ltx_*.csv"]
+    pats += [f"results/p6_{M}_*.csv", "results/show_*.csv"]
     snapshot_download(REPO, repo_type="dataset", local_dir=".", allow_patterns=pats, max_workers=8)
     print("fetched", REPO)
 
 
-def clips(exps, target, model=M):
+def clips(exps, target, model=None):
     """Clips probe.load keeps, in its order: dicts with exp, dir, meta, y, scene (group)."""
     out = []
     for exp in exps:
-        for d in sorted((RUN / exp / model).glob("*/acts.npz")):
+        for d in sorted((RUN / exp / (model or M)).glob("*/acts.npz")):
             meta = json.loads((d.parent / "meta.json").read_text(encoding="utf-8"))
             spec = next(Path("data/scenes").glob(f"*/{meta['scene']}.json"), None)
             if spec is None:
@@ -60,16 +61,16 @@ def clips(exps, target, model=M):
     return out
 
 
-def load(exps, target, model=M):
-    feats, y, g = probe.load(str(RUN), model, exps, target)
+def load(exps, target, model=None):
+    feats, y, g = probe.load(str(RUN), model or M, exps, target)
     cl = clips(exps, target, model)
     assert len(cl) == len(y) and np.allclose([c["y"] for c in cl], y), "clip order mismatch with probe.load"
     return cl, feats, y, g
 
 
-def show(exp, model=M):
+def show(exp):
     rows = []
-    for s in sorted((RUN / exp / model).glob("*/score.json")):
+    for s in sorted((RUN / exp / M).glob("*/score.json")):
         m = json.loads((s.parent / "meta.json").read_text(encoding="utf-8"))
         rows.append(dict(exp=exp, dir=s.parent.name, scene=m["scene"].split("_g")[0], seed=m["seed"],
                          cond=m.get("cond"), alpha=m.get("alpha")) | json.loads(s.read_text(encoding="utf-8")))
@@ -80,7 +81,7 @@ def show(exp, model=M):
 
 
 def best(target, tag=""):
-    """Best mid-network probe row (max sym MRA over blocks and steps) of results/p6_ltx2b{tag}_{target}_obj.csv."""
+    """Best mid-network probe row (max sym MRA over blocks and steps) of results/p6_{model}{tag}_{target}_obj.csv."""
     d = pd.read_csv(f"results/p6_{M}{tag}_{target}_obj.csv")
     d = d[(d.block >= 0) & d.feature.str.endswith("/obj") & ~d.feature.str.startswith("vae/")]
     return d.loc[d.sym_mra.idxmax()]
@@ -136,13 +137,18 @@ def gap():
 def pooled_latent(c):
     import torch
     F, H, W = c["meta"]["token_grid"]
-    x = torch.load(RUN / c["exp"] / M / c["dir"] / "latent.pt").float().numpy().reshape(F, H, W, -1)
+    x = torch.load(RUN / c["exp"] / M / c["dir"] / "latent.pt").float()
+    if x.ndim == 5:     # Wan/Cosmos keep (1, C, F, h, w) VAE latents; LTX packs tokens (1, F*H*W, C)
+        x = x[0].permute(1, 2, 3, 0)
+        F, H, W = x.shape[:3]
+    x = x.numpy().reshape(F, H, W, -1)
     return x.reshape(F, 5, H // 5, 13, W // 13, -1).mean((2, 4)).ravel().astype(np.float32)
 
 
 def c5():
     cache, rows = {}, []
     for t, exps in TARGET_EXPS.items():
+        mid = best(t).sym_mra
         cl, _, y, g = load(exps, t)
         for c in cl:
             k = (c["exp"], c["dir"])
@@ -155,7 +161,7 @@ def c5():
         s = sh[sh.measurable][f"{t}_sym_mra"].dropna() if f"{t}_sym_mra" in sh else pd.Series(dtype=float)
         rows.append(dict(target=t, n=len(y), n_measurable=int(meas.sum()), latent_mra=mra,
                          latent_mra_on_measurable=metrics.sym_mra(pred, y)[meas].mean() if meas.any() else np.nan,
-                         mid_probe_mra=best(t).sym_mra, show_mra_median=s.median(), show_mra_mean=s.mean()))
+                         mid_probe_mra=mid, show_mra_median=s.median(), show_mra_mean=s.mean()))
     print("C5: final-latent probe vs best mid-network probe vs show (latent~mid>video: decoder loses it)")
     save(pd.DataFrame(rows), "c5")
 
@@ -237,7 +243,7 @@ def c6():
 
 # ---------------------------------------------------------------- C9
 def c9(n_boot=5000, exp="c9"):
-    """C9 readout; exp c9b: the every-block-from-7 eraser (results c3_ltx2b_c9b_*)."""
+    """C9 readout; exp c9b: the every-block-from-7 eraser (results c3_{model}_c9b_*)."""
     if not any((RUN / exp / M).glob("*/meta.json")):
         print(f"{exp}: no {exp} runs yet")
         return
@@ -295,55 +301,62 @@ def c9(n_boot=5000, exp="c9"):
 
 # ---------------------------------------------------------------- gates
 def gates():
+    name = {"ltx2b": "LTX-2B", "cosmos2b": "Cosmos-2B", "vace13": "VACE-1.3B"}.get(M, M)
+    short = name.split("-")[0]
     gp = f"{OUT}gap.csv"
-    gd = pd.read_csv(gp) if Path(gp).exists() else gap()
+    have_p6 = all(Path(f"results/p6_{M}_{t}_obj.csv").exists() for t in TARGET_EXPS)
+    gd = pd.read_csv(gp) if Path(gp).exists() else gap() if have_p6 else None
     y = __import__("yaml").safe_load(Path("configs/gates.yaml").read_text(encoding="utf-8"))
     rows = []
     add = lambda gate, value, thr, verdict, src: rows.append((gate, value, thr, verdict, src))
 
     add("G1a tracker vs GT", "-", f">= {y['G1_tracker']['a_min_sym_mra_vs_gt']} sym MRA", "not evaluated",
-        "needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not LTX clips)")
+        f"needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not {short} clips)")
     ratio = "bratio2" if len(show("bratio2")) else "bratio"      # bratio2 (bigger balls) supersedes bratio
     meas = {e: show(e).measurable.mean() for e in ("b1", "b5", "b2nl", "b3", ratio) if len(show(e))}
     thr = y["G1_tracker"]["b_min_measurability"]
     add("G1b measurability", ", ".join(f"{e} {v:.2f}" for e, v in meas.items()), f">= {thr} (verdict: min over exps)",
-        "PASS" if min(meas.values()) >= thr else "FAIL", f"runs/{{b1,b5,b2nl,b3,{ratio}}}/ltx2b/*/score.json")
+        "PASS" if min(meas.values()) >= thr else "FAIL", f"runs/{{{','.join(meas)}}}/{M}/*/score.json")
     b1 = show("b1")
     m1 = b1[b1.measurable & b1.hspeed_sym_mra.notna()]
     med = m1.hspeed_sym_mra.median()
     lo, hi = y["G2_score_range"]["b1_sym_mra_min"], y["G2_score_range"]["b1_sym_mra_max"]
     add("G2 B1 score range", f"median hspeed sym MRA over {len(m1)} measurable B1 clips = {med:.3f} (statistic interpreted)",
-        f"[{lo}, {hi}]", "PASS" if lo <= med <= hi else "FAIL", "runs/b1/ltx2b/*/score.json")
-    mg = {t: pd.read_csv(f"results/p6_{M}_{t}_obj.csv").query("block >= 0").margin_over_vae_and_control.max() for t in TARGET_EXPS}
+        f"[{lo}, {hi}]", "PASS" if lo <= med <= hi else "FAIL", f"runs/b1/{M}/*/score.json")
     thr = y["G3_probe_signal"]["min_margin_over_vae_and_control"]
-    add("G3 probe signal", ", ".join(f"{t} {v:.3f}" for t, v in mg.items()), f">= {thr} in >= 1 target",
-        "PASS" if max(mg.values()) >= thr else "FAIL", "results/p6_ltx2b_{hspeed,g,e}_obj.csv (best block)")
+    if have_p6:
+        mg = {t: pd.read_csv(f"results/p6_{M}_{t}_obj.csv").query("block >= 0").margin_over_vae_and_control.max() for t in TARGET_EXPS}
+        add("G3 probe signal", ", ".join(f"{t} {v:.3f}" for t, v in mg.items()), f">= {thr} in >= 1 target",
+            "PASS" if max(mg.values()) >= thr else "FAIL", f"results/p6_{M}_{{hspeed,g,e}}_obj.csv (best block)")
+    else:
+        add("G3 probe signal", "no probe CSVs", f">= {thr} in >= 1 target", "not evaluated", f"results/p6_{M}_{{hspeed,g,e}}_obj.csv")
     b5 = show("b5")
     m5 = b5[b5.measurable & (b5.get("g", pd.Series(dtype=float)) > 0) & (b5.get("g_gt", pd.Series(dtype=float)) > 0)]
     if len(m5) >= 6 and m5.g_gt.nunique() > 1:
         sl, (a, b) = metrics.gamma_fit(m5.g.to_numpy(), m5.g_gt.to_numpy(), groups=m5.scene.to_numpy())
         add("G4 gamma CI width", f"gamma {sl:.2f}, 95% CI [{a:.2f}, {b:.2f}], width {b - a:.2f} ({len(m5)} B5 clips; fitted here)",
             f"<= {y['G4_gamma_fit']['max_ci95_width']}", "PASS" if b - a <= y["G4_gamma_fit"]["max_ci95_width"] else "FAIL",
-            "runs/b5/ltx2b/*/score.json")
+            f"runs/b5/{M}/*/score.json")
     else:
         add("G4 gamma CI width", f"only {len(m5)} measurable B5 clips", f"<= {y['G4_gamma_fit']['max_ci95_width']}", "not evaluated", "runs/b5")
     ale, sil = metrics.abs_log_err(m1.hspeed, m1.hspeed_gt), metrics.silog(m1.hspeed, m1.hspeed_gt)
     lim = y["G5_clock"]["max_abs_log_err_over_silog"]
     add("G5 clock", f"median |ln(pred/true)| {ale:.3f} / SILog {sil:.3f} = {ale / sil:.2f}; {len(m1)} B1 clips (bias {metrics.signed_log_bias(m1.hspeed, m1.hspeed_gt):+.2f})",
-        f"<= {lim} (> {lim}: clock dominates)", "PASS" if ale / sil <= lim else "FAIL (clock dominates)", "runs/b1/ltx2b/*/score.json")
+        f"<= {lim} (> {lim}: clock dominates)", "PASS" if ale / sil <= lim else "FAIL (clock dominates)", f"runs/b1/{M}/*/score.json")
     st = pd.concat([show("steer"), b1[b1.seed == 0].assign(alpha=0.0)])
-    st = st[st.scene.isin(show("steer").scene.unique()) & st.measurable & (st.hspeed > 0) & (st.hspeed_gt > 0)]
+    st = st[st.scene.isin(show("steer").get("scene", [])) & st.measurable & (st.hspeed > 0) & (st.hspeed_gt > 0)]
     if len(st) >= 6 and st.alpha.nunique() > 2:
         # gamma_fit regresses ln(pred) on ln(true): pass pred = hspeed/truth and true = exp(alpha) to get the alpha slope
         sl, (a, b) = metrics.gamma_fit((st.hspeed / st.hspeed_gt).to_numpy(), np.exp(st.alpha.to_numpy(float)), groups=st.scene.to_numpy())
         rat = st.groupby("alpha").apply(lambda d: (d.hspeed / d.hspeed_gt).median(), include_groups=False)
         add("G6 steering", f"slope of ln(fitted/true hspeed) per alpha = {sl:+.3f}, 95% CI [{a:+.3f}, {b:+.3f}], {len(st)} measurable clips; "
             f"median ratio by alpha: " + ", ".join(f"{k:+g}:{v:.2f}" for k, v in rat.items()), "CI excludes 0",
-            "PASS" if a > 0 or b < 0 else "FAIL", "runs/steer/ltx2b/*/score.json + runs/b1/ltx2b seed 0 (alpha 0)")
+            "PASS" if a > 0 or b < 0 else "FAIL", f"runs/steer/{M}/*/score.json + runs/b1/{M} seed 0 (alpha 0)")
     else:
-        add("G6 steering", f"only {len(st)} measurable steer clips", "CI excludes 0", "not evaluated", "runs/steer/ltx2b")
-    add("G7 budget", "-", "<= 0.25 rel. error at 1 estimate/clip (LTX)", "not evaluated", "needs the timing table (runs/timing)")
-    r = gd[gd.target == "hspeed"].iloc[0]
+        add("G6 steering", f"only {len(st)} measurable steer clips", "CI excludes 0", "not evaluated", f"runs/steer/{M}")
+    add("G7 budget", "-", f"<= 0.25 rel. error at {y['G7_budget']['estimates_min_per_clip'][M]} estimate/clip ({short})",
+        "not evaluated", "needs the timing table (runs/timing)")
+    r = gd[gd.target == "hspeed"].iloc[0] if gd is not None else {}
     if "sd_scene" in r and np.isfinite(r.sd_scene):
         z = 0.10 / (r.sd_scene / np.sqrt(r.n_scenes))
         pw = stats.norm.cdf(z - 1.96) + stats.norm.cdf(-z - 1.96)
@@ -351,19 +364,20 @@ def gates():
             f">= {y['G8_power']['target_power']}", "PASS" if pw >= y["G8_power"]["target_power"] else "FAIL", f"{OUT}gap.csv")
     else:
         add("G8 power", "no gap estimate", "", "not evaluated", f"{OUT}gap.csv")
-    add("G9 VACE continuation", "-", "VACE only", "not evaluated", "not applicable to LTX-2B")
+    add("G9 VACE continuation", "-", "VACE only", "not evaluated",
+        "needs the boundary-error check after the input window (not run)" if M == "vace13" else f"not applicable to {name}")
     real = show("b1real")
     if len(real):
         d = 100 * (b1.measurable.mean() - real.measurable.mean())
         add("G10 domain gap", f"measurability rendered B1 {b1.measurable.mean():.2f} vs real b1real {real.measurable.mean():.2f} = {d:+.1f} points ({len(real)} real clips; residual-ratio part not evaluated)",
             f"|gap| <= {y['G10_domain_gap']['max_measurability_gap_points']} points", "PASS" if abs(d) <= y["G10_domain_gap"]["max_measurability_gap_points"] else "FAIL",
-            "runs/{b1,b1real}/ltx2b/*/score.json")
+            f"runs/{{b1,b1real}}/{M}/*/score.json")
     else:
         add("G10 domain gap", "no b1real scores", "", "not evaluated", "runs/b1real")
-    md = ["# Gates, LTX-2B (generated by pilot/analysis.py)", "", "| Gate | Value | Threshold | Verdict | Source |", "|---|---|---|---|---|"]
+    md = [f"# Gates, {name} (generated by pilot/analysis.py)", "", "| Gate | Value | Threshold | Verdict | Source |", "|---|---|---|---|---|"]
     md += [f"| {' | '.join(str(c).replace('|', '/') for c in row)} |" for row in rows]
     Path("results").mkdir(exist_ok=True)
-    Path("results/gates_ltx2b.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    Path(f"results/gates_{M}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print("\n".join(md))
 
 
@@ -387,8 +401,13 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
     ap.add_argument("--no-fetch", action="store_true")
+    ap.add_argument("--model", default="ltx2b")
     a = ap.parse_args()
+    M, OUT = a.model, f"results/c3_{a.model}_"
     fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates, selftest=selftest)
     for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
-        fns[name]()
+        try:
+            fns[name]()
+        except FileNotFoundError as e:      # a model without p6 CSVs / latents yet: skip, keep going under `all`
+            print(f"{name}: skipped ({e})")
