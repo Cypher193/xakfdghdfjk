@@ -104,6 +104,47 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Test:** `bratio2` used 0.7–0.9 m balls (71–92 px). It was still 5/30 measurable (`configs/deviations.md` D2).
 - **Actual cause:** LTX splits the balls, changes their colour, shrinks them, and keeps them airborne until they leave the frame. The measurability rule rejects these clips: a generator failure, not a tracker failure.
 
+## Three generators: LTX-2B, Cosmos-Predict2.5-2B, Wan2.1-VACE-1.3B (2026-10-28)
+
+**What ran.**
+- Cosmos-2B and VACE-1.3B ran the core plan: B1 on 100 kmain scenes, B5 on 30 kgrav scenes, and the 7 real clips, all seed 0.
+- Each model then ran the same probes (`{model}probe`) and `python -m pilot.analysis all --model {model}`.
+- Results are in `results/c3_{model}_*` and `results/gates_{model}.md` (also on HF).
+- LTX numbers are the phase 2 runs over all seeds (300 B1 clips). For the other two models every scene has one clip.
+
+**Know vs show** (sym MRA). *Know* is the best mid-network probe on object tokens. *Margin* is its lead over the larger of the VAE-latent baseline and the control task. *Gap* is know minus show over measurable clips, with a scene-bootstrap 95% CI; all gaps have Holm p < 0.001. *I* is the conditional V-information beyond the VAE latents, in nats.
+
+| Model | Target | Know | Margin | Show | Gap [95% CI] | Scenes | I [95% CI] |
+|---|---|---|---|---|---|---|---|
+| LTX-2B | speed | 0.84 | +0.19 | 0.55 | +0.36 [0.29, 0.43] | 91 | 0.68 [0.52, 0.86] |
+| LTX-2B | gravity | 0.81 | +0.07 | 0.25 | +0.58 [0.50, 0.65] | 51 | 0.51 [0.28, 0.71] |
+| LTX-2B | restitution | 0.94 | 0.00 | 0.71 | +0.24 [0.18, 0.30] | 51 | 0.02 [-0.04, 0.08] |
+| Cosmos-2B | speed | 0.78 | +0.13 | 0.41 | +0.36 [0.27, 0.45] | 72 | 0.45 [0.30, 0.62] |
+| Cosmos-2B | gravity | 0.88 | +0.10 | 0.34 | +0.57 [0.45, 0.69] | 28 | 0.90 [0.55, 1.19] |
+| Cosmos-2B | restitution | 0.95 | +0.01 | 0.84 | +0.12 [0.07, 0.17] | 28 | -0.01 [-0.10, 0.08] |
+| VACE-1.3B | speed | 0.85 | +0.18 | 0.48 | +0.37 [0.28, 0.46] | 56 | 0.77 [0.61, 0.93] |
+| VACE-1.3B | gravity | 0.93 | 0.00 | 0.17 | +0.80 [0.68, 0.90] | 19 | 0.00 [0.00, 0.00] |
+| VACE-1.3B | restitution | 0.93 | +0.01 | 0.60 | +0.34 [0.22, 0.47] | 19 | 0.00 [-0.03, 0.02] |
+
+**Reading.**
+- **Speed:** all three models encode it beyond the input latents, with margins of 0.13–0.19 and I of 0.45–0.77 nats. All three render it far worse than they encode it, with the same gap of about +0.36 for each. This is the cross-architecture result.
+- **Gravity:**
+  - Only LTX and Cosmos carry it beyond the input. Cosmos carries the most (I = 0.90 nats), even though it sees only 5 input frames (0.3 s) against LTX's 25.
+  - VACE's gravity "know" is the VAE baseline itself, so its +0.80 gap measures a show failure, not a hidden code.
+- **Restitution:** no model encodes it beyond the input. The probe reads e at the level of the VAE latents, so the e gaps are rendering failures too.
+- **C5** (speed, final latent vs mid-network) is the same in all three models: 0.60 vs 0.77–0.85. Speed is lost inside the network before the final latent, not in the VAE decoder.
+
+**Gates.**
+- G1b fails for all three: B5 measurability is 0.40 for Cosmos, 0.13 for VACE and 0.37 for LTX.
+- G8 power is 0.57–0.58 for the two new models, one seed each. LTX, with three seeds, reaches 0.76.
+- Cosmos also fails G4 (gamma CI width 1.07 from 12 B5 clips). G10 is noisy: 7 real clips, all measurable.
+- Cosmos G6 comes from 6 old pilot steer clips and shows no effect (slope +0.001). It is not a real steering test.
+
+**Caveats.**
+- *Know* is the best of 84 (LTX) to 135 (VACE: `blocks` plus `vace_blocks`) block/step choices. The nested-CV correction (Deferred, item 2) applies to every row.
+- The gravity and restitution rows rest on 19–51 measurable scenes.
+- Seed 0 only for Cosmos and VACE. A second seed would raise G8 power and is the cheapest next step: about $13 for both models.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding.
