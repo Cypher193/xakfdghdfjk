@@ -95,7 +95,7 @@ def pull():
 
 
 def push():
-    if not any((ROOT / p.split("/**")[0]).exists() for p in PUSH_PATTERNS):
+    if not any(next(ROOT.glob(p), None) for p in PUSH_PATTERNS):    # patterns are globs ("results/p6_vace13*"), not dirs
         print("nothing to push yet", flush=True)
         return
     HfApi().upload_large_folder(repo_id=repo_id(), repo_type="dataset", folder_path=ROOT,
