@@ -147,9 +147,9 @@ def monitor(a):
 
 
 def worker_label(a, k):
-    m = re.fullmatch(r"(cosmos2b|vace13)(?:s(\d+)of(\d+)|probe)", a.job)   # run_pilot.MODEL_JOBS: block "cosmos2b" / ...
+    m = re.fullmatch(r"(cosmos2b|vace13)(?:([sr])(\d+)of(\d+)|(probe|steer))", a.job)   # MODEL_JOBS, STEER_JOBS
     if m:
-        return f"kvs-{m[1]}-{m[2]}of{m[3]}" if m[2] else f"kvs-{m[1]}probe-1of1"
+        return f"kvs-{m[1]}{'r' if m[2] == 'r' else ''}-{m[3]}of{m[4]}" if m[2] else f"kvs-{m[1]}{m[5]}-1of1"
     m = re.fullmatch(r"(c9b?)s(\d+)of(\d+)", a.job)    # phase 3 C9 / C9b jobs: monitor block "c9" / "c9b"
     if m:
         return f"kvs-{m[1]}-{m[2]}of{m[3]}"

@@ -68,8 +68,8 @@ def main():
         idx = torch.from_numpy(np.flatnonzero(object_token_mask(mcfg, grid, box, in_wh)))
         for alpha in a.alphas:
             out = Path(cfg["paths"]["runs"]) / "steer" / a.model / f"{spec['id']}_a{alpha:+g}_s0"
-            if (out / "meta.json").exists():
-                continue
+            if (out / "meta.json").exists() and json.loads((out / "meta.json").read_text()).get("block") == block:
+                continue                       # a clip steered at another block (an older probe file) is redone
             out.mkdir(parents=True, exist_ok=True)
             r = gen.generate(frames, spec["caption"], 0, box, in_wh, capture=False,
                              hooks=[(gen.blocks()[block], steer_hook(w, sigma, idx, alpha))])

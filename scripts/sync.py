@@ -66,6 +66,11 @@ elif os.environ.get("LTX_JOB"):
         PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
     if j == "probe2":                    # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
         PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
+    if j == "cosmos2bsteer":             # pilot.steer: probe direction from the B1 acts, kmain input windows
+        PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4", "runs/b1/cosmos2b/*/acts.npz",
+                    "runs/b1/cosmos2b/*/meta.json", "results/p6_cosmos2b_hspeed_obj.csv"] + mine + \
+            [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json", "video.mp4")]
+        PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
     gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
     if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;
         import yaml                       # a relaunch scores clips an earlier pod never scored; ~3 MB a clip). Not the

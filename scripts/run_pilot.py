@@ -247,9 +247,33 @@ def _model_jobs(model, n):
     return jobs
 
 
+# Round 2 (2026-10-30): B1 + B5 seeds 1-2 (G8 power), B2-nl seed 0 (H2). Cosmos B5 to 8 seeds (G4) left out: budget
+ROUND2 = {"cosmos2b": (7, [1, 2]), "vace13": (7, [1, 2])}     # model: (pods, B5 seeds); 7 odd as above
+
+
+def _round2_jobs(model, n, b5_seeds):
+    jobs = {}
+    for k in range(1, n + 1):
+        sh, name, ids = f"{k}/{n}", f"{model}r{k}of{n}", kmain_ids(k, n, n_scenes("b1"))
+        steps = [gen(model, "b1", None, [1, 2], shard=sh, ids=ids), gen(model, "b2nl", None, [0], shard=sh, ids=ids),
+                 gen(model, "b5", None, b5_seeds, shard=sh, ids=kgrav_ids(k, n))]
+        steps.append(cmd(f"score:{name}", ["-m", "pilot.score", "--models", model, "--table",
+                                           f"results/show_ltx_{name}.csv"], 10 * sum(s["clips"] for s in steps)))
+        jobs[name] = steps
+    return jobs
+
+
 MODEL_JOBS = {j: s for m, n in MODEL_SHARDS.items() for j, s in _model_jobs(m, n).items()}   # sync.py: table-driven
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS
-LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", []))) for j, steps in MODEL_JOBS.items()}
+MODEL_JOBS |= {j: s for m, (n, b5) in ROUND2.items() for j, s in _round2_jobs(m, n, b5).items()}
+# C7 steering on Cosmos-2B (G6 had only 6 pilot clips): alpha 0 is the B1 seed-0 clip
+STEER_JOBS = {"cosmos2bsteer": [
+    dict(name="steer:cosmos2b", kind="gen", model="cosmos2b", clips=40, out=["runs/steer/cosmos2b"],
+         cmd=[PY, "-m", "pilot.steer", "--model", "cosmos2b", "--scenes", "10", "--alphas", "-2", "-1", "1", "2"]),
+    cmd("score:cosmos2bsteer", ["-m", "pilot.score", "--models", "cosmos2b", "--table",
+                                "results/show_ltx_cosmos2bsteer.csv"], 10 * 40)]}
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS
+LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
+             for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 
 
 def job_repos(job):
