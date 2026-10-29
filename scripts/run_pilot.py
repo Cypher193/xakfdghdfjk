@@ -134,7 +134,7 @@ C9_SHARDS = 4                                                # phase 3: C9 (LEAC
 SHARDS = 7                                                   # phase 2 (2026-10-25): kmain 100 scenes over 7 pods
 LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/ltx2b", "runs/b3/ltx2b"],
             "gen3": ["runs/b5/ltx2b"], "gen4": ["runs/bratio/ltx2b", "runs/p7/ltx2b_noise", "runs/p7/ltx2b_inv"],
-            "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [], "bratio2": ["runs/bratio2/ltx2b"],
+            "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [], "bratio2": ["runs/bratio2/ltx2b"], "stats2": [],
             **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)},
             **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)},
             **{f"c9bs{k}of{C9_SHARDS}": ["runs/c9b/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
@@ -271,7 +271,12 @@ STEER_JOBS = {"cosmos2bsteer": [
          cmd=[PY, "-m", "pilot.steer", "--model", "cosmos2b", "--scenes", "10", "--alphas", "-2", "-1", "1", "2"]),
     cmd("score:cosmos2bsteer", ["-m", "pilot.score", "--models", "cosmos2b", "--table",
                                 "results/show_ltx_cosmos2bsteer.csv"], 10 * 40)]}
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS
+STATS_MODELS = ["ltx2b", "cosmos2b", "vace13"]
+# docs/phase3.md Deferred 2: G1a on the 100 full kmain renders (SAM2), then the nested-CV know-show gap per model (CPU)
+STATS2 = [cmd("g1a", ["-m", "pilot.track", "validate", "data/renders/kmain", "--scenes", "data/scenes/kmain",
+                      "--out", "results/p0_renders_kmain100.csv"], 1800)] +          [cmd(f"nested:{m}", ["-m", "pilot.analysis", "nested", "--model", m], s)
+          for m, s in zip(STATS_MODELS, (2700, 1500, 1800))]     # ~2.5x a 16-thread laptop extrapolation (18, 8, 11 min)
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2}
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

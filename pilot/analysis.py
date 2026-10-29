@@ -2,6 +2,7 @@
 
     python -m pilot.analysis fetch      # download what the analyses need from HF (never video.mp4)
     python -m pilot.analysis gap        # know-show gap per target (B1 hspeed; B1+B5 g, e), Holm across targets
+    python -m pilot.analysis nested     # the same gap with block/step/penalty chosen by nested scene CV (pod job stats2)
     python -m pilot.analysis c5         # final-latent probe vs mid-network probe vs show
     python -m pilot.analysis c6         # conditional V-information beyond VAE, online MDL, p7 noise vs inv
     python -m pilot.analysis c9         # LEACE readout (skips cleanly if runs/c9 is absent)
@@ -15,15 +16,14 @@ Outputs: results/c3_{model}_*.csv / .json / gates_{model}.md. Probe targets are 
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from scipy import stats
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import GridSearchCV, GroupKFold
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GroupKFold
 
 from pilot import metrics, probe
 
@@ -101,35 +101,93 @@ def sign_flip_p(per, n=20000, seed=0):
 
 
 # ---------------------------------------------------------------- gap
+def show_values(t, exps, cl):
+    """Tracker estimate of target t per clip of cl; nan where the clip is not measurable."""
+    sh = pd.concat([show(e) for e in exps]).set_index(["exp", "dir"])
+    return np.array([sh[t].get((c["exp"], c["dir"]), np.nan) if t in sh and sh["measurable"].get((c["exp"], c["dir"]), False)
+                     else np.nan for c in cl], float)
+
+
+def paired(t, cl, y, g, pred, sv):
+    """Paired know-show gap over the measurable clips -> (row, per-clip frame). know: probe pred, show: tracker sv."""
+    ok = np.isfinite(sv) & (sv > 0)
+    know = metrics.sym_mra(pred, y)
+    shw = np.zeros(len(y))
+    shw[ok] = metrics.sym_mra(sv[ok], y[ok])
+    clip = pd.DataFrame(dict(target=t, exp=[c["exp"] for c in cl], dir=[c["dir"] for c in cl], scene=g, true=y,
+                             know_pred=pred, show_pred=sv, know_mra=know, show_mra=np.where(ok, shw, np.nan)))
+    row = dict(n_clips_all=len(y), n_clips=int(ok.sum()), n_scenes=len(np.unique(g[ok])), know_mra_all=know.mean())
+    if ok.sum() >= 4 and len(np.unique(g[ok])) >= 3:
+        m, (lo, hi) = metrics.paired_bootstrap(know[ok], shw[ok], g[ok])
+        per = np.array([np.mean(know[ok][g[ok] == k] - shw[ok][g[ok] == k]) for k in np.unique(g[ok])])
+        row |= dict(know_mra=know[ok].mean(), show_mra=shw[ok].mean(), gap=m, gap_lo=lo, gap_hi=hi,
+                    sd_scene=per.std(ddof=1), p=sign_flip_p(per))
+    return row, clip
+
+
+def holm(df, by=None):
+    """Holm across targets (within each value of column `by`)."""
+    p = df.p.fillna(1.0) if "p" in df else pd.Series(1.0, df.index)
+    df["p_holm"] = p.groupby(df[by] if by else np.zeros(len(df))).transform(lambda v: metrics.holm(v.to_numpy()))
+    return df
+
+
 def gap():
     rows, per_clip = [], []
     for t, exps in TARGET_EXPS.items():
         cl, feats, y, g = load(exps, t)
         b = best(t)
         pred = np.exp(probe.cv_predict(feats[b.feature][int(b.block), int(b.step)], np.log(y), g))
-        sh = pd.concat([show(e) for e in exps]).set_index(["exp", "dir"])
-        sv = np.array([sh[t].get((c["exp"], c["dir"]), np.nan) if t in sh and sh["measurable"].get((c["exp"], c["dir"]), False)
-                       else np.nan for c in cl], float)
-        ok = np.isfinite(sv) & (sv > 0)
-        know = metrics.sym_mra(pred, y)
-        shw = np.zeros(len(y))
-        shw[ok] = metrics.sym_mra(sv[ok], y[ok])
-        per_clip.append(pd.DataFrame(dict(target=t, exp=[c["exp"] for c in cl], dir=[c["dir"] for c in cl], scene=g, true=y,
-                                          know_pred=pred, show_pred=sv, know_mra=know, show_mra=np.where(ok, shw, np.nan))))
-        row = dict(target=t, block=int(b.block), step=int(b.step), n_clips_all=len(y), n_clips=int(ok.sum()),
-                   n_scenes=len(np.unique(g[ok])), know_mra_all=know.mean())
-        if ok.sum() >= 4 and len(np.unique(g[ok])) >= 3:
-            m, (lo, hi) = metrics.paired_bootstrap(know[ok], shw[ok], g[ok])
-            per = np.array([np.mean(know[ok][g[ok] == k] - shw[ok][g[ok] == k]) for k in np.unique(g[ok])])
-            row |= dict(know_mra=know[ok].mean(), show_mra=shw[ok].mean(), gap=m, gap_lo=lo, gap_hi=hi,
-                        sd_scene=per.std(ddof=1), p=sign_flip_p(per))
-        rows.append(row)
-    df = pd.DataFrame(rows)
-    pv = df.p.fillna(1.0).to_numpy() if "p" in df else np.ones(len(df))
-    df["p_holm"] = metrics.holm(pv)
+        row, clip = paired(t, cl, y, g, pred, show_values(t, exps, cl))
+        rows.append(dict(target=t, block=int(b.block), step=int(b.step)) | row)
+        per_clip.append(clip)
+    df = holm(pd.DataFrame(rows))
     pd.concat(per_clip).to_csv(f"{OUT}gap_clips.csv", index=False)
     print("know-show gap (paired over measurable clips; gap = know - show, sym MRA; CI = scene bootstrap)")
     save(df, "gap")
+    return df
+
+
+# ---------------------------------------------------------------- nested gap
+def candidates(feats):
+    """(feature, block, step) of every mid-network object-token probe: the rows best() picks from."""
+    return [(k, b, s) for k, A in feats.items() if k.endswith("/obj") and not k.startswith("vae/")
+            for b in range(A.shape[0]) for s in range(A.shape[1])]
+
+
+def nested_predict(feats, y, g, n_outer=5, n_jobs=-1):
+    """Outer scene folds; inside each outer training fold, block and step by best()'s rule (max out-of-fold sym MRA,
+    probe.score) and the ridge penalty by probe.fit's inner scene CV; then predict the outer fold. -> pred, pick."""
+    ly, cands = np.log(y), candidates(feats)
+    pred, pick = np.empty_like(y), np.empty(len(y), object)
+    for tr, te in GroupKFold(min(n_outer, len(np.unique(g)))).split(ly, ly, g):
+        mra = Parallel(n_jobs)(delayed(probe.score)(feats[k][b, s][tr], y[tr], g[tr]) for k, b, s in cands)
+        k, b, s = cands[int(np.argmax([m for m, _ in mra]))]
+        pred[te] = np.exp(probe.fit(feats[k][b, s][tr], ly[tr], g[tr]).predict(feats[k][b, s][te]))
+        pick[te] = f"{k}[{b},{s}]"
+    return pred, pick
+
+
+def nested(n_jobs=-1):
+    """Nested-CV know-show gap next to the best-of-all one (p6 best row, as gap()): results/c3_{model}_nested*.csv."""
+    rows, per_clip = [], []
+    for t, exps in TARGET_EXPS.items():
+        cl, feats, y, g = load(exps, t)
+        sv, t0 = show_values(t, exps, cl), time.time()
+        pred, pick = nested_predict(feats, y, g, n_jobs=n_jobs)
+        b = best(t)
+        best_pred = np.exp(probe.cv_predict(feats[b.feature][int(b.block), int(b.step)], np.log(y), g))
+        for method, p, k in (("nested", pred, pick), ("best_of_all", best_pred, f"{b.feature}[{int(b.block)},{int(b.step)}]")):
+            row, clip = paired(t, cl, y, g, p, sv)
+            picks = pd.Series(k, index=range(len(y))).value_counts()
+            rows.append(dict(target=t, method=method, picks="; ".join(f"{q} x{n}" for q, n in picks.items())) | row)
+            per_clip.append(clip.assign(method=method, pick=k))
+        print(f"{t}: {len(candidates(feats))} candidates, {len(y)} clips, {time.time() - t0:.0f} s", flush=True)
+    df = holm(pd.DataFrame(rows), "method")
+    pd.concat(per_clip).to_csv(f"{OUT}nested_clips.csv", index=False)
+    print("know-show gap: nested CV (block, step, penalty chosen inside each outer scene fold) vs best of all blocks;"
+          " picks = chosen block/step x clips")
+    save(df, "nested")
     return df
 
 
@@ -198,8 +256,7 @@ def mdl(X, y, g, seed=0, fracs=(.1, .2, .4, .6, .8, 1.0), K=256):
         if len(np.unique(g[tr])) < 4:
             bits += te.sum() * uni
             continue
-        m = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": probe.ALPHAS},
-                         cv=GroupKFold(3), scoring="neg_mean_squared_error").fit(X[tr], ly[tr], groups=g[tr])
+        m = probe.fit(X[tr], ly[tr], g[tr])
         s2 = max(-m.best_score_, delta ** 2 / 12)     # cannot beat the bin width
         res = ly[te] - m.predict(X[te])
         pn = np.exp(-res ** 2 / (2 * s2)) / np.sqrt(2 * np.pi * s2) * delta        # mass of the true bin under the Gaussian
@@ -310,8 +367,16 @@ def gates():
     rows = []
     add = lambda gate, value, thr, verdict, src: rows.append((gate, value, thr, verdict, src))
 
-    add("G1a tracker vs GT", "-", f">= {y['G1_tracker']['a_min_sym_mra_vs_gt']} sym MRA", "not evaluated",
-        f"needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not {short} clips)")
+    thr, p0 = y["G1_tracker"]["a_min_sym_mra_vs_gt"], Path("results/p0_renders_kmain100.csv")
+    if p0.exists():      # renders, not generated clips: the same row for every model; QuantiPhy part: deviations.md D1
+        d = pd.read_csv(p0)
+        mra = d.filter(like="_sym_mra").stack().mean()
+        add("G1a tracker vs GT", f"mean sym MRA {mra:.3f} over {len(d)} full kmain renders (" + ", ".join(
+            f"{c.removesuffix('_sym_mra')} {v:.2f}" for c, v in d.filter(like="_sym_mra").mean().items()) +
+            f"), measurable {d.measurable.mean():.2f}", f">= {thr} sym MRA", "PASS" if mra >= thr else "FAIL", p0.as_posix())
+    else:
+        add("G1a tracker vs GT", "-", f">= {thr} sym MRA", "not evaluated",
+            f"needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not {short} clips)")
     ratio = "bratio2" if len(show("bratio2")) else "bratio"      # bratio2 (bigger balls) supersedes bratio
     meas = {e: show(e).measurable.mean() for e in ("b1", "b5", "b2nl", "b3", ratio) if len(show(e))}
     thr = y["G1_tracker"]["b_min_measurability"]
@@ -395,16 +460,35 @@ def selftest():
     a, b = mdl(Xa, ylearn, g), mdl(Xa, ynoise, g)
     assert a["bits"] < b["bits"] and a["compression"] > b["compression"], (a, b)
     print(f"selftest ok: I={I:.2f} nats (noise {In:.2f}); MDL learnable {a['bits']:.0f} bits vs noise {b['bits']:.0f}")
+    # nested gap: a speed planted at block 2 step 1 is found in every outer fold; nested know <= best of all blocks
+    g = np.repeat(np.arange(30), 2)
+    cl = [dict(exp="b1", dir=str(i)) for i in range(len(g))]
+    for planted in (True, False):
+        feats = {"blocks/obj": rng.normal(size=(4, 2, len(g), 20)).astype(np.float32)}
+        y = np.exp(0.4 * (feats["blocks/obj"][2, 1, :, 0] if planted else rng.normal(size=30)[g]))
+        sv = y * np.exp(0.5 * rng.normal(size=len(g)))
+        pred, pick = nested_predict(feats, y, g, n_jobs=1)
+        top_pred = max((probe.score(feats[k][b, s], y, g) for k, b, s in candidates(feats)), key=lambda r: r[0])[1]
+        nest, top = paired("v", cl, y, g, pred, sv)[0], paired("v", cl, y, g, top_pred, sv)[0]
+        assert nest["gap"] <= top["gap"] + 1e-9 and nest["know_mra_all"] <= top["know_mra_all"] + 1e-9, (nest, top)
+        if planted:
+            assert set(pick) == {"blocks/obj[2,1]"}, set(pick)
+            assert nest["know_mra_all"] > 0.9, nest
+        else:
+            assert nest["know_mra_all"] < top["know_mra_all"], (nest, top)     # best of 8 noise probes is optimistic
+        print(f"nested selftest ({'planted' if planted else 'no signal'}): know {nest['know_mra_all']:.3f} vs best of all "
+              f"{top['know_mra_all']:.3f}, gap {nest['gap']:.3f} vs {top['gap']:.3f}, picks {sorted(set(pick))}")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
+    ap.add_argument("cmd", choices=["fetch", "gap", "nested", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--model", default="ltx2b")
     a = ap.parse_args()
     M, OUT = a.model, f"results/c3_{a.model}_"
-    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates, selftest=selftest)
+    fns = dict(fetch=fetch, gap=gap, nested=nested, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates,
+               selftest=selftest)
     for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
         try:

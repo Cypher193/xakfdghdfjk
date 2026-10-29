@@ -152,3 +152,8 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
    - A nested-CV know–show gap: choose the block and step inside each outer fold, not the best of 84 on all data.
    - G1a: tracker vs ground truth on the full kmain renders.
    - Both run on CPU or a cheap vast instance.
+   - **Built: pod job `stats2`** (one RTX 3090, CPU-bound apart from SAM2).
+     - G1a: `python -m pilot.track validate data/renders/kmain --scenes data/scenes/kmain --out results/p0_renders_kmain100.csv`, the P0 code on all 100 full renders. `gates` reads that file when it exists.
+     - Nested gap: `python -m pilot.analysis nested --model M`. There are 5 outer folds split by scene. Inside each outer training fold, the block and step are chosen by `best()`'s rule (max out-of-fold sym MRA, `probe.score`) and the ridge penalty by `probe.fit`'s inner scene CV. The model then predicts the outer fold. The paired gap code is the same as `gap`'s, with Holm across targets.
+     - Output: `results/c3_{model}_nested.csv` holds one `nested` row and one `best_of_all` row per target (the latter recomputes `c3_{model}_gap.csv`). `picks` lists the block and step each outer fold chose. Per-clip rows go to `results/c3_{model}_nested_clips.csv`.
+     - `python -m pilot.analysis selftest` covers it on synthetic data. A planted block is picked in every fold. With no signal, the nested know is lower than the best of 8 noise probes.
