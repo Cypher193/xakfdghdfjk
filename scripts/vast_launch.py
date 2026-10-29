@@ -150,9 +150,12 @@ def worker_label(a, k):
     m = re.fullmatch(r"(cosmos2b|vace13)(?:s(\d+)of(\d+)|probe)", a.job)   # run_pilot.MODEL_JOBS: block "cosmos2b" / ...
     if m:
         return f"kvs-{m[1]}-{m[2]}of{m[3]}" if m[2] else f"kvs-{m[1]}probe-1of1"
-    m = re.fullmatch(r"(c9b?)s(\d+)of(\d+)", a.job)    # phase 3 C9 / C9b jobs: monitor block "c9" / "c9b"
+    m = re.fullmatch(r"(c9[bc]?)s(\d+)of(\d+)", a.job)    # phase 3 C9 / C9b / C9c jobs: monitor block "c9" / "c9b" / "c9c"
     if m:
         return f"kvs-{m[1]}-{m[2]}of{m[3]}"
+    m = re.fullmatch(r"c9cchain-(leace|rand)", a.job)    # C9c chains: blocks "c9cchain_leace" / "c9cchain_rand"
+    if m:
+        return f"kvs-c9cchain_{m[1]}-1of1"
     m = re.fullmatch(r"s(\d+)of(\d+)", a.job)      # phase 2 shard jobs: one monitor block "ltx2"
     return f"kvs-ltx2-{m[1]}of{m[2]}" if m else f"kvs-ltx{a.job}-{k}of{a.n}"
 

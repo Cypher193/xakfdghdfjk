@@ -4,7 +4,7 @@
     python -m pilot.analysis gap        # know-show gap per target (B1 hspeed; B1+B5 g, e), Holm across targets
     python -m pilot.analysis c5         # final-latent probe vs mid-network probe vs show
     python -m pilot.analysis c6         # conditional V-information beyond VAE, online MDL, p7 noise vs inv
-    python -m pilot.analysis c9         # LEACE readout (skips cleanly if runs/c9 is absent)
+    python -m pilot.analysis c9         # LEACE readout (skips cleanly if runs/c9 is absent); c9b, c9c: the same for those runs
     python -m pilot.analysis gates      # results/gates_{model}.md
     python -m pilot.analysis all [--no-fetch]
     python -m pilot.analysis selftest
@@ -38,7 +38,7 @@ RUN = Path("runs")
 def fetch():
     from huggingface_hub import snapshot_download
     pats = ["data/scenes/**"]
-    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b".split():
+    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b c9c".split():
         pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
     pats += [f"results/p6_{M}_*.csv", "results/show_*.csv"]
@@ -243,7 +243,7 @@ def c6():
 
 # ---------------------------------------------------------------- C9
 def c9(n_boot=5000, exp="c9"):
-    """C9 readout; exp c9b: the every-block-from-7 eraser (results c3_{model}_c9b_*)."""
+    """C9 readout; exp c9b: the every-block-from-7 eraser, c9c: the sequential chain (results c3_{model}_{exp}_*)."""
     if not any((RUN / exp / M).glob("*/meta.json")):
         print(f"{exp}: no {exp} runs yet")
         return
@@ -278,25 +278,41 @@ def c9(n_boot=5000, exp="c9"):
     if "leace" in boot and "rand" in boot:
         used = diffs[0]["excludes_0"] and diffs[0]["diff"] > 0
         print("information used (rho(leace) < rho(rand), CI excludes 0):", used)
-    # probe MRA on the c9 acts at blocks >= the erased block
+    # probes on the c9 acts at blocks >= the erased block: retrained within each condition (probe_mra), and trained on
+    # clean B1 of the other scenes (clean_r2, clean_mra)
     cl9 = clips([exp], "hspeed")
-    cl1 = [c for c in clips(["b1"], "hspeed") if c["meta"]["seed"] == 0]
     erased = int(cl9[0]["meta"]["block"])
     f9, y9, g9 = probe.load(str(RUN), M, [exp], "hspeed")
     f1, y1, g1 = probe.load(str(RUN), M, ["b1"], "hspeed")
     s0 = np.array([c["meta"]["seed"] == 0 for c in clips(["b1"], "hspeed")])
     sets = {c: (f9, y9, g9, np.array([x["meta"].get("cond") == c for x in cl9])) for c in ("leace", "rand")}
     sets["b1_s0"] = (f1, y1, g1, s0)
-    rows = []
+    A1, rows = f1["transformer_blocks/obj"], []
     for c, (f, y, g, mask) in sets.items():
         A = f["transformer_blocks/obj"]
         for b in range(erased, A.shape[0]):
             for st in range(A.shape[1]):
-                rows.append(dict(cond=c, block=b, step=st, n=int(mask.sum()), probe_mra=probe.score(A[b, st][mask], y[mask], g[mask])[0]))
-    print(f"{exp} probe MRA on {exp} acts, blocks >= {erased} (probe fit within each condition)")
+                r2, cm = clean_probe(A1[b, st], y1, g1, A[b, st][mask], y[mask], g[mask])
+                rows.append(dict(cond=c, block=b, step=st, n=int(mask.sum()), clean_r2=r2, clean_mra=cm,
+                                 probe_mra=probe.score(A[b, st][mask], y[mask], g[mask])[0]))
+    print(f"{exp} probes on {exp} acts, blocks >= {erased}: retrained within each condition (probe_mra) and trained on "
+          "clean B1 of the other scenes (clean_r2 of ln hspeed)")
     df = pd.DataFrame(rows)
     df.to_csv(f"{OUT}{exp}_probe.csv", index=False)
     print(df.groupby("cond").probe_mra.agg(["mean", "max"]).join(df.groupby("cond").apply(lambda d: d.loc[d.probe_mra.idxmax(), ["block", "step"]], include_groups=False)).to_string())
+    print(df.groupby("cond").clean_r2.agg(["mean", "max"]).to_string())
+
+
+def clean_probe(X1, y1, g1, X, y, g, k=5):
+    """Ridge on clean B1 clips (X1) of the other scenes, applied to X per held-out fold of its scenes -> R^2 of ln y
+    (pooled, 0 = the mean), mean sym MRA."""
+    pred, ly = np.empty(len(y)), np.log(y)
+    for _, te in GroupKFold(k).split(X, y, g):
+        tr = ~np.isin(g1, g[te])
+        m = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": probe.ALPHAS},
+                         cv=GroupKFold(3), scoring="neg_mean_squared_error").fit(X1[tr], np.log(y1[tr]), groups=g1[tr])
+        pred[te] = m.predict(X[te])
+    return 1 - ((pred - ly) ** 2).sum() / ((ly - ly.mean()) ** 2).sum(), float(metrics.sym_mra(np.exp(pred), y).mean())
 
 
 # ---------------------------------------------------------------- gates
@@ -399,13 +415,14 @@ def selftest():
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
+    ap.add_argument("cmd", choices=["fetch", "gap", "c5", "c6", "c9", "c9b", "c9c", "gates", "all", "selftest"])
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--model", default="ltx2b")
     a = ap.parse_args()
     M, OUT = a.model, f"results/c3_{a.model}_"
-    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates, selftest=selftest)
-    for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "gates"]) if a.cmd == "all" else [a.cmd]:
+    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), c9c=lambda: c9(exp="c9c"),
+               gates=gates, selftest=selftest)
+    for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "c9c", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
         try:
             fns[name]()

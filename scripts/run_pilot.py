@@ -137,7 +137,8 @@ LTX_RUNS = {"gen1": ["runs/b1/ltx2b", "runs/b1real/ltx2b"], "gen2": ["runs/b2nl/
             "probe": ["runs/steer/ltx2b"], "probe2": [], "score2": [], "bratio2": ["runs/bratio2/ltx2b"],
             **{f"s{k}of{SHARDS}": [f"runs/{e}/ltx2b" for e in ("b1", "b2nl", "b3")] for k in range(1, SHARDS + 1)},
             **{f"c9s{k}of{C9_SHARDS}": ["runs/c9/ltx2b"] for k in range(1, C9_SHARDS + 1)},
-            **{f"c9bs{k}of{C9_SHARDS}": ["runs/c9b/ltx2b"] for k in range(1, C9_SHARDS + 1)}}
+            **{f"c9{x}s{k}of{C9_SHARDS}": [f"runs/c9{x}/ltx2b"] for x in "bc" for k in range(1, C9_SHARDS + 1)},
+            **{f"c9cchain-{c}": [f"runs/c9c_chain/ltx2b/{c}"] for c in ("leace", "rand")}}
 LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job needs every gen job's clips
 
 
@@ -210,11 +211,20 @@ def _shard_jobs():
     return jobs
 
 
+C9C_GROUPS, C9C_FIT, C9C_PASS_S = 5, 100, 55   # C9c chain: groups of blocks 7-27, fit scenes (seed 0), s per acts-only pass
+
+
 def _c9_jobs():
     """Phase 3, C9 (docs/phase3.md): shard K/4 of the kmain scenes, seed 0, cond leace + rand = 2 clips per scene.
-    C9b: the same with one eraser per block 7-27."""
-    jobs = {}
-    for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"])):
+    C9b: the same with one eraser per block 7-27. C9c: the chains c9cchain-leace / -rand (two pods at once), then the
+    shards, which load both finished chains (pilot.leace stops if a chain.json is missing)."""
+    jobs = {f"c9cchain-{c}": [dict(name=f"c9cchain:{c}", kind="cmd", model="ltx2b",    # model: setup downloads LTX
+                                   # group 0 is the B1 seed-0 acts (no pass); fits: ~15-25 s per block on the laptop
+                                   est_s=LOAD_S + (C9C_GROUPS - 1) * C9C_FIT * C9C_PASS_S + 60 * len(range(7, 28)),
+                                   cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--chain", c,
+                                        "--groups", str(C9C_GROUPS), "--fit-scenes", str(C9C_FIT)])]
+            for c in ("leace", "rand")}
+    for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"]), ("c9c", ["--exp", "c9c"])):
         for k in range(1, C9_SHARDS + 1):
             ids = [f"{s}_{c}" for s in kmain_ids(k, C9_SHARDS, n_scenes("b1")) for c in ("leace", "rand")]
             clips, name = len(ids), f"{exp}s{k}of{C9_SHARDS}"

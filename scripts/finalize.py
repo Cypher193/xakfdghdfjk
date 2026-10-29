@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import sync  # noqa: E402  (same patterns and repo as the regular uploads)
 
 PY = sys.executable
-WORKERS = ["restart2.sh", "restart.sh", "run_pilot.py", "pilot.generate", "pilot.steer", "pilot.invert",
+WORKERS = ["restart2.sh", "restart.sh", "run_pilot.py", "pilot.generate", "pilot.steer", "pilot.leace", "pilot.invert",
            "pilot.likelihood", "pilot.score", "pilot.probe", "time_extra.sh", "scripts/ext/",
            "sync.py push --every"]                                   # the background uploader: finalize uploads now
 LOG = ROOT / "data/logs/finalize.log"                               # main() adds the screen suffix
