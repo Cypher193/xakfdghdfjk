@@ -33,3 +33,27 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - Balls split in two, change colour (red to white), shrink as if moving away from the camera, and fly off the top of the frame because they stay airborne far too long.
   - These failures trip the area rule (0.5–2× the frame-0 area) of the measurability gate. They are generator failures, not tracker failures.
   - Among the 5 measurable clips, median sym MRA is t_ratio 0.69 and h_ratio 0.81 (was 0.56 and 0.75).
+
+## D3 — G1b fail action: CoTracker3 readout as a second tracker (2026-10-30, after seeing data; PENDING USER APPROVAL)
+
+- **Result that prompted it:** G1b (measurability ≥ 0.70 per model) fails for all three generators. B5 (kgrav): LTX-2B 0.41 (150 clips, 5 seeds), Cosmos-2B 0.40, VACE-1.3B 0.13 (30 clips each). B1: LTX 0.72, Cosmos 0.72, VACE 0.56. bratio2: LTX 0.17.
+- **Registered fail action:** "add CoTracker3 or stability filter; drop hard scenes; rerun P0 and P12".
+- **What the data had shown before this entry:**
+  - score.json does not record which part of the rule failed.
+  - Contact sheets of 12 failing B5 seed-0 clips (4 per model) show 11 generator failures. The ball grows to 2-3x as it comes toward the camera (Cosmos 3/4, VACE 1/4). It fades out or vanishes (LTX 2/4, VACE 1/4). It shrinks to a dot (VACE 1/4). It flies off the top of the frame (VACE 1/4). The twelfth (LTX `kgrav_06_g1.0`) keeps a constant-size ball that rises to the top edge, so it could be a tracker or an off-frame failure.
+  - Failures are not concentrated in a few scenes. 4 of 30 kgrav scenes are never measurable, and the per-scene measurability of the three models correlates at only 0.07-0.48. Dropping hard scenes would therefore not reach 0.70, and choosing them now would be choosing on the outcome. That part of the fail action is not taken.
+- **Change (opt-in, nothing registered is replaced):**
+  - `pilot.score --tracker cotracker3` re-reads every clip with CoTracker3 (offline, torch.hub `facebookresearch/co-tracker`). It tracks a grid of up to 64 points seeded inside the frame-0 SAM2 mask (`track.cotracker_tracks`).
+  - Centroid: the mean of the visible points.
+  - Area for the measurability rule: the frame-0 mask area × (convex hull of the visible points / its frame-0 hull).
+  - A point counts as visible only if CoTracker marks it visible and its pixel is within 30 CIELAB units of its own frame-0 colour. This guard is a precaution, so that points left on the background where a ball faded out cannot count as the ball. On the 4 clips tried on the laptop it changed nothing, because CoTracker had already marked those points invisible.
+  - The metre scale still comes from the SAM2 masks of the input frames.
+  - Output goes to `score_v2.json` beside `score.json`, which is never rewritten. `pilot.analysis g1b` and `--v2` read it.
+  - The same pass records per-object SAM2 mask faults (`track.mask_faults`: vanished, off-frame, edge, split, recoloured, shrunk, grown). This gives the rule-level breakdown that score.json lacks, and the D2 B-ratio counts.
+- **What is not changed:** the measurability rule and its numbers (≥ 80% of scored frames present, area 0.5-2x frame 0), every threshold in `gates.yaml`, the scenes and the clips.
+- **P0 re-check (G1a):** the new readout must reach sym MRA ≥ 0.80 on the 100 full kmain renders (`results/p0_renders_cotracker3_ltx_rescore.csv`). SAM2 runs on the same renders for comparison (`p0_renders_sam2_ltx_rescore.csv`). P12 is not rerun here.
+- **Laptop check of the new readout (CPU, seeded from the ground-truth disk on frame 0):**
+  - On a kmain render (48 frames) the median centroid error is 0.42 px and the area stays at 0.86-1.17x.
+  - 4 failing B5 clips (LTX `kgrav_08_g2.0`, VACE `kgrav_02_g2.0`, Cosmos `kgrav_03_g0.5`, LTX `kgrav_06_g1.0`) all stay not measurable. The share of scored frames in the area band is 0.32, 0.09, 0.06 and 0.45.
+- **Expected outcome, stated before the run:** G1b should change little. Most failures in the sample are what the generator drew, and an honest second tracker has to reject those too. If CoTracker3 agrees with SAM2, G1b's failure is a show result (the generators break the object) rather than a measurement failure.
+- **Approved by:** pending. Nothing has been run with this mode on GPU.

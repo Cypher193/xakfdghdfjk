@@ -1,6 +1,7 @@
 """CPU check of the per-model pod jobs (run_pilot.MODEL_JOBS) and what sync.py / setup_runpod.sh derive from them.
 Needs data/scenes (kmain, kgrav) and data/real/manifest.json: python scripts/sync.py pull, or a laptop checkout.
     python -m tests.test_run_pilot"""
+import fnmatch
 import importlib
 import os
 import sys
@@ -40,4 +41,21 @@ assert "runs/b1real/cosmos2b/**" not in sync.PUSH_PATTERNS and "results/*_ltx_co
 assert {"data/renders/kmain/*_input.mp4", "data/renders/kgrav/*_input.mp4", "runs/b1/cosmos2b/*/meta.json",
         "runs/b5/cosmos2b/*/score.json", "runs/b1/cosmos2b/*/video.mp4"} <= set(sync.PATTERNS), sync.PATTERNS
 assert not any("b1real" in p or "ltx2b" in p for p in sync.PATTERNS)
+
+# rescore (configs/deviations.md D3): one SAM2-only pod; every result file it writes is in its own push globs
+steps = LTX_JOBS["rescore"]
+assert [s["name"] for s in steps] == ["p0:cotracker3", "score:rescore", "p0:sam2"] and job_repos("rescore") == [sam2]
+assert all(s["cmd"][s["cmd"].index("--tracker") + 1] == "cotracker3" for s in steps[:2])
+os.environ["LTX_JOB"] = "rescore"
+sync = importlib.reload(sync)
+match = lambda f, pats: any(fnmatch.fnmatch(f, p) for p in pats)
+written = [a for s in steps for a in s["cmd"] if a.startswith("results/")]
+assert len(written) == 4 and all(match(f, sync.PUSH_PATTERNS) for f in written), written
+for e, m in (("b1", "ltx2b"), ("b5", "vace13"), ("b1real", "cosmos2b"), ("bratio2", "ltx2b")):
+    d = f"runs/{e}/{m}/x_s0"
+    assert match(f"{d}/score_v2.json", sync.PUSH_PATTERNS) and not match(f"{d}/score.json", sync.PUSH_PATTERNS)
+    assert match(f"{d}/video.mp4", sync.PATTERNS) and match(f"{d}/meta.json", sync.PATTERNS)
+    assert not match(f"{d}/acts.npz", sync.PATTERNS)
+assert match("data/renders/kmain/kmain_cv_07.mp4", sync.PATTERNS)
+assert not match("data/renders/kmain/kmain_cv_07_input.mp4", sync.PATTERNS) and not match("runs/b2nl/ltx2b/x_s0/video.mp4", sync.PATTERNS)
 print("run_pilot job checks passed")

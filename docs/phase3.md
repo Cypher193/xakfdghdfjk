@@ -145,9 +145,27 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - The gravity and restitution rows rest on 19–51 measurable scenes.
 - Seed 0 only for Cosmos and VACE. A second seed would raise G8 power and is the cheapest next step: about $13 for both models.
 
+## G1b re-score with CoTracker3 (job `rescore`, D3 pending approval)
+
+- **Why:** G1b fails for all three models (B5 0.13-0.41). The registered fail action adds CoTracker3, so `configs/deviations.md` D3 adds it as a second readout. That entry also gives the laptop diagnosis: in a sample of failing clips the generators break the ball, so G1b is expected to change little.
+- **Job:** one RTX 3090 running three steps:
+  1. P0 of the CoTracker3 readout on the 100 full kmain renders (G1a).
+  2. Every B1, B5 and b1real clip of LTX-2B, Cosmos-2B and VACE-1.3B, plus the 30 bratio2 clips (767 in all), into `score_v2.json`.
+  3. SAM2 P0 on the same renders, for comparison.
+- **Outputs:**
+  - `results/p0_renders_{cotracker3,sam2}_ltx_rescore.csv`
+  - `results/show_v2_ltx_rescore.csv`
+  - `results/faults_ltx_rescore.csv`: one row per clip and ball, with frame counts of vanished, off-frame, edge, split, recoloured, shrunk, grown and lost-but-colour-seen from the SAM2 masks. Its bratio2 rows are the B-ratio breakdown below.
+- **Pull:** videos, meta and any `score_v2.json` of those runs, the scenes, the real-clip manifest and the full kmain renders. No acts or latents. **Push:** `score_v2.json` and the job's results and logs.
+- **Readout (laptop):**
+  - `python -m pilot.analysis fetch --model M` for each model.
+  - `python -m pilot.analysis g1b` gives measurability per model × exp under both trackers on the same clips, plus why SAM2 rejected each ball.
+  - `python -m pilot.analysis gap --v2 --model M` and `gates --v2` recompute the know-show gaps and the gates from `score_v2.json`, into `results/c3_{M}_v2_*` and `gates_{M}_v2.md`.
+- **Not re-scored:** LTX b2nl, b3, steer and c9. Under `--v2` the G1b row of `gates` covers b1, b5 and bratio2 only.
+
 ## Deferred (user, 2026-10-26)
 
-1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding.
+1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
 2. **Statistics without the selection bias:**
    - A nested-CV know–show gap: choose the block and step inside each outer fold, not the best of 84 on all data.
    - G1a: tracker vs ground truth on the full kmain renders.

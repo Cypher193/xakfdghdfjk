@@ -1,6 +1,7 @@
 """Show readout: SAM2 masks -> centroids -> metres -> kinematic fits.
 
     python -m pilot.track validate data/renders/kmain --scenes data/scenes/kmain   # P0 on renders
+    ... --tracker cotracker3                     # P0 of the CoTracker3 readout (configs/deviations.md D3)
 """
 import argparse
 import json
@@ -65,6 +66,51 @@ def centroids(masks):
     return c, area
 
 
+def cotracker_tracks(frames, masks0, n_max=64, de_max=30.0, device=None):
+    """CoTracker3 (offline, torch.hub facebookresearch/co-tracker) on a grid of points inside each object's frame-0 SAM2
+    mask. Per object, like centroids(): centroid (T, 2) = mean of the visible points, and an area in frame-0 mask pixels =
+    mask area x (convex hull of the visible points / its frame-0 value), so measurable()'s 0.5-2x band reads the same.
+    A point counts as visible only if CoTracker says so AND its pixel is within de_max (CIELAB) of its frame-0 colour,
+    so points left on the background where a generated ball faded out cannot make it "present". A frame with under
+    half the points visible counts as absent (area 0, centroid nan)."""
+    import torch
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if "cotracker3" not in _SAM:
+        _SAM["cotracker3"] = torch.hub.load("facebookresearch/co-tracker", "cotracker3_offline", trust_repo=True).to(device)
+    q, owner = [], []
+    for k, m in enumerate(masks0):
+        inner = cv2.erode(m.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)   # keep seeds off the soft edge
+        ys, xs = np.nonzero(inner if inner.sum() >= 3 else m)
+        step = max(1, int(np.sqrt(len(xs) / n_max)))
+        sel = (xs % step == 0) & (ys % step == 0)
+        q += [[0.0, x, y] for x, y in zip(xs[sel], ys[sel])]
+        owner += [k] * int(sel.sum())
+    video = torch.from_numpy(frames).permute(0, 3, 1, 2)[None].float().to(device)
+    with torch.inference_mode():
+        pts, vis = _SAM["cotracker3"](video, queries=torch.tensor(q, dtype=torch.float32, device=device)[None])
+    pts, vis, owner = pts[0].cpu().numpy(), vis[0].cpu().numpy(), np.array(owner)
+    H, W = frames.shape[1:3]
+    u = np.clip(np.round(pts[..., 0]).astype(int), 0, W - 1)
+    v = np.clip(np.round(pts[..., 1]).astype(int), 0, H - 1)
+    lab = np.stack([cv2.cvtColor(f.astype(np.float32) / 255, cv2.COLOR_RGB2LAB)[v[i], u[i]] for i, f in enumerate(frames)])
+    vis &= np.linalg.norm(lab - lab[:1], axis=-1) < de_max
+    hull = lambda p: cv2.contourArea(cv2.convexHull(p.astype(np.float32))) if len(p) >= 3 else 0.0
+    out = []
+    for k, m in enumerate(masks0):
+        p, v = pts[:, owner == k], vis[:, owner == k]
+        c, area, h0 = np.full((len(p), 2), np.nan), np.zeros(len(p)), max(hull(p[0]), 1e-6)
+        for i in np.flatnonzero(v.mean(1) >= 0.5):
+            c[i] = p[i, v[i]].mean(0)
+            area[i] = m.sum() * hull(p[i, v[i]]) / h0
+        out.append((c, area))
+    return out
+
+
+def object_tracks(frames, masks, tracker="sam2"):
+    """Per object (centroid (T, 2) px, area (T,)): from the SAM2 masks, or CoTracker3 seeded from their frame 0."""
+    return [centroids(m) for m in masks] if tracker == "sam2" else cotracker_tracks(frames, masks[:, 0])
+
+
 def px_per_m(masks, size_m):
     """Scale from the object's known size: median over frames of min(mask width, mask height).
     Area overstates size (visible top face of boxes, motion blur, soft edges); blur stretches one axis,
@@ -84,6 +130,43 @@ def measurable(area, i0, min_present=0.8, area_lo=0.5, area_hi=2.0):
         return False
     ok = (a > 0) & (a >= area_lo * ref) & (a <= area_hi * ref)
     return bool(ok.mean() >= min_present)
+
+
+FAULTS = ("vanished", "offframe", "edge", "split", "recoloured", "shrunk", "grown", "lost_seen")
+
+
+def mask_faults(frames, mask, i0, de_max=30.0):
+    """Frame counts of what went wrong with one object's mask over the scored frames (i >= i0), against frame 0.
+    Empty frames are vanished, or offframe if the last mask touched the border. Non-empty frames: edge (touches the
+    border), split (>= 2 parts of >= 10% of the frame-0 area), recoloured (mean CIELAB colour > de_max from frame 0),
+    shrunk / grown (outside measurable's 0.5-2x band). So measurable == (n - vanished - offframe - shrunk - grown) / n
+    >= 0.8. lost_seen: empty frames with >= half the frame-0 area of frame-0-coloured pixels near the last position,
+    i.e. the ball is probably still there and the tracker lost it. Diagnostic only, not the gate."""
+    lab = lambda i: cv2.cvtColor(frames[i].astype(np.float32) / 255, cv2.COLOR_RGB2LAB)
+    ref = int(mask[0].sum())
+    out = dict.fromkeys(FAULTS, 0) | dict(n=len(mask) - i0, ref_px=ref)
+    if ref == 0:
+        return out
+    c0 = lab(0)[mask[0]].mean(0)
+    r = int(3 * np.sqrt(ref))                             # search window: ~3 ball diameters around the last centroid
+    edge, (u, v) = False, centroids(mask[:1])[0][0]
+    for i in range(i0, len(mask)):
+        m = mask[i]
+        if not m.any():
+            out["offframe" if edge else "vanished"] += 1
+            near = lab(i)[max(int(v) - r, 0):int(v) + r, max(int(u) - r, 0):int(u) + r]
+            out["lost_seen"] += int((np.linalg.norm(near - c0, axis=-1) < de_max).sum() >= ref / 2)
+            continue
+        edge = bool(m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any())
+        out["edge"] += edge
+        ys, xs = np.nonzero(m)
+        u, v = xs.mean(), ys.mean()
+        _, _, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8))
+        out["split"] += int((st[1:, cv2.CC_STAT_AREA] >= 0.1 * ref).sum() >= 2)
+        out["recoloured"] += int(np.linalg.norm(lab(i)[m].mean(0) - c0) > de_max)
+        out["shrunk"] += int(len(xs) < 0.5 * ref)
+        out["grown"] += int(len(xs) > 2.0 * ref)
+    return out
 
 
 # ---------------------------------------------------------------- fits (metres, z up, t in seconds)
@@ -192,36 +275,44 @@ def gt_boxes(spec, frame=0):
     return boxes
 
 
-def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1):
-    """Track a clip of a known scene. Returns readout dict plus measurability and pixel tracks."""
+def clip_frames(video_path, spec):
+    """Frames at the scene's render geometry (generated clips come back at the model's size), fps."""
     frames, fps = load_video(video_path)
     cam = spec["camera"]
-    if frames.shape[1:3] != (cam["height"], cam["width"]):   # generated clips: back to render geometry
+    if frames.shape[1:3] != (cam["height"], cam["width"]):
         frames = np.stack([cv2.resize(f, (cam["width"], cam["height"]), interpolation=cv2.INTER_AREA) for f in frames])
+    return frames, fps
+
+
+def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker="sam2"):
+    """Track a clip of a known scene. Returns readout dict plus measurability, SAM2 mask faults and pixel tracks.
+    The metre scale comes from the SAM2 masks of the input frames with either tracker."""
+    frames, fps = clip_frames(video_path, spec)
+    cam = spec["camera"]
     t = np.arange(len(frames)) / fps
     masks = sam2_masks(frames, boxes or gt_boxes(spec))
     i0 = int(np.searchsorted(t, t_start))
     xs, zs, ok = [], [], True
-    for o, m in zip(spec["objects"], masks):
-        c, area = centroids(m)
+    for o, m, (c, area) in zip(spec["objects"], masks, object_tracks(frames, masks, tracker)):
         s = px_per_m(m[:cond_frames], o["size_m"])
         xs.append((c[:, 0] - cam["cx"]) / s)
         zs.append(-(c[:, 1] - cam["cy"]) / s)
         ok &= measurable(area, i0)
-    res = dict(measurable=ok, fps=fps, n_frames=len(frames))
+    res = dict(measurable=ok, fps=fps, n_frames=len(frames), tracker=tracker,
+               faults=[mask_faults(frames, m, i0) for m in masks])
     if ok:
         res.update(readout(spec["family"], t, xs, zs, t_start))
     res["track_px"] = [np.c_[(x * 1), (z * 1)].round(4).tolist() for x, z in zip(xs, zs)]
     return res
 
 
-def validate(render_dir, scene_dir, out_csv):
+def validate(render_dir, scene_dir, out_csv, tracker="sam2"):
     """P0 on renders: tracker readout vs exact ground truth (gate G1a)."""
     import pandas as pd
     rows = []
     for vid in sorted(v for v in Path(render_dir).glob("*.mp4") if v.stem.count("_") == 2):   # full clips only
         spec = json.loads((Path(scene_dir) / f"{vid.stem}.json").read_text(encoding="utf-8"))
-        r = track_clip(vid, spec, cond_frames=5)
+        r = track_clip(vid, spec, cond_frames=5, tracker=tracker)
         row = dict(scene=vid.stem, family=spec["family"], measurable=r["measurable"])
         for k, v in spec["gt"].items():
             if k in r:
@@ -283,11 +374,12 @@ if __name__ == "__main__":
     v.add_argument("renders")
     v.add_argument("--scenes", required=True)
     v.add_argument("--out", default="results/p0_renders.csv")
+    v.add_argument("--tracker", choices=["sam2", "cotracker3"], default="sam2")
     q = sub.add_parser("qval")
     q.add_argument("--out", default="results/p0_qval.csv")
     a = ap.parse_args()
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     if a.cmd == "validate":
-        validate(a.renders, a.scenes, a.out)
+        validate(a.renders, a.scenes, a.out, a.tracker)
     else:
         validate_qval(out_csv=a.out)

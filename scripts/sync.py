@@ -6,7 +6,7 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
-LTX pods (LTX_JOB=gen1..gen4|probe|probe2|sKofN|{model}sKofN|{model}probe, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
+LTX pods (LTX_JOB=gen1..gen4|probe|probe2|sKofN|{model}sKofN|{model}probe|rescore, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
 patterns derived from the job's steps): PATTERNS (pull) = inputs + the job's runs, logs and
 results (probe, probe2: also every runs/*/ltx2b; shards sKofN: only runs/*/ltx2b/*/meta.json and score.json, so
 PATTERNS is not a superset of PUSH_PATTERNS); PUSH_PATTERNS = only the job's own files.
@@ -66,6 +66,11 @@ elif os.environ.get("LTX_JOB"):
         PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
     if j == "probe2":                    # pilot.probe reads acts.npz + meta.json + the scene specs only, no videos/renders
         PATTERNS = ["data/scenes/**"] + mine + [f"{r}/*/{f}" for r in LTX_PULL_EXTRA for f in ("acts.npz", "meta.json")]
+    if j == "rescore":                    # G1b re-score: videos + meta (+ score_v2 of a relaunch), full kmain renders for P0
+        from run_pilot import RESCORE_RUNS
+        PATTERNS = ["data/scenes/**", "data/real/manifest.json", "data/renders/kmain/kmain_*_??.mp4"] + mine + \
+            [f"{r}/*/{f}" for r in RESCORE_RUNS for f in ("video.mp4", "meta.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + [f"{r}/*/score_v2.json" for r in RESCORE_RUNS]
     gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
     if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;
         import yaml                       # a relaunch scores clips an earlier pod never scored; ~3 MB a clip). Not the

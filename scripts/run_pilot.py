@@ -248,7 +248,20 @@ def _model_jobs(model, n):
 
 
 MODEL_JOBS = {j: s for m, n in MODEL_SHARDS.items() for j, s in _model_jobs(m, n).items()}   # sync.py: table-driven
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS
+# G1b fail action (configs/deviations.md D3): every B1 / B5 / b1real clip of the three models, plus the B-ratio set,
+# re-scored with the CoTracker3 readout into score_v2.json; P0 (G1a) on the 100 full kmain renders with both trackers
+RESCORE_RUNS = [f"runs/{e}/{m}" for e in ("b1", "b5", "b1real") for m in ("ltx2b", "cosmos2b", "vace13")] + \
+    ["runs/bratio2/ltx2b"]
+_p0 = lambda tr: cmd(f"p0:{tr}", ["-m", "pilot.track", "validate", "data/renders/kmain", "--scenes", "data/scenes/kmain",
+                                  "--tracker", tr, "--out", f"results/p0_renders_{tr}_ltx_rescore.csv"], 100 * 20)
+RESCORE_JOBS = {"rescore": [   # 767 clips at ~15 s (SAM2 3.5-7 s/clip on a 3090 + CoTracker3); the new mode's P0 first
+    _p0("cotracker3"),
+    cmd("score:rescore", ["-m", "pilot.score", "--tracker", "cotracker3", "--models", "ltx2b", "cosmos2b", "vace13",
+                          "--table", "results/show_v2_ltx_rescore.csv", "--faults", "results/faults_ltx_rescore.csv"],
+        767 * 15),
+    _p0("sam2")]}
+LTX_RUNS["rescore"] = []                                    # pull / push: sync.py's rescore branch
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | RESCORE_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", []))) for j, steps in MODEL_JOBS.items()}
 
 
