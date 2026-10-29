@@ -98,6 +98,36 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - **Next step for a clean causal test:** sequential (concept-scrubbing) LEACE, refitting each block on activations already erased upstream. That needs one generation pass per block, which is expensive.
 - **C9b runs:** jobs `c9bs1of4`..`c9bs4of4` write to `runs/c9b/ltx2b/`. The readout is `python -m pilot.analysis c9b` and writes `results/c3_ltx2b_c9b_*`.
 
+## C9c: sequential LEACE (concept scrubbing), blocks 7-27
+
+- **Design:** blocks 7-27 split into 5 near-equal groups (7-11, 12-15, 16-19, 20-23, 24-27). The erasers of group k are fit on activations generated with the erasers of every group before k active.
+  - Group 0 has no upstream eraser, so its fit data is the B1 seed-0 activations.
+  - Every other group needs one pass over the fit scenes: generate with the upstream erasers hooked, stop denoising after the last captured step (37 of 50), no VAE decode (`Generator.generate(acts_only=True)`).
+  - Estimator and check as C9b (`leace.fit_check`): pooled object tokens, one concept column per captured step, Ledoit-Wolf, cross-fitted check.
+  - The leace chain must pass `check_ok`. The rand chain has its own passes: its erasers are fit to permuted z (`random_like`, seed 0) on the rand chain's activations and must pass `rand_kept` (`rand_ok`, perturbation <= 0.3).
+  - `python -m pilot.leace --model ltx2b --chain leace|rand` -> `runs/c9c_chain/ltx2b/{cond}/`: `g{k}/{scene}.npy` (one clip of one pass), `g{k}.npz` (the group's erasers and check), `chain.json` (written last: groups, fit scenes, checks).
+  - The chain is resumable. A relaunch skips finished groups and clips, and the pod pushes the chain every 15 min.
+- **Fit set: all 100 kmain scenes, seed 0.** Laptop dry run of the check on clean B1 seed-0 activations, every block 7-27:
+  - 50 scenes: 18 of 21 blocks fail. The rand control's retrained probe drops to 0.33-0.55 against a clean R² of about 0.63.
+  - 75 scenes: 5 blocks fail (15, 16, 24-26).
+  - 100 scenes: all pass. leace (a) and (b) stay <= 0.03, and rand keeps a margin of >= 0.09 over its target.
+  - A check that fails mid-chain stops the chain, which wastes the passes before it, so the smaller sets are out.
+  - Trade-off: the final runs use the same 100 scenes at seed 0, so the erasure is in-sample, as in C9b (fit on 300 clips including seed 0). There are no held-out scenes.
+- **Why 5 groups:** each pass costs about 100 x 55 s = 1.5 h. Exact sequential LEACE (21 groups) would take about 30 h per chain.
+  - With 5 groups, the eraser of the second to fifth block of a group is fit without the earlier blocks of its own group erased. C9 showed that speed re-encodes within one block (0.56 -> 0.90 from block 7 to 8), so some re-encoding inside a group goes unseen by that group's fit. The next group's fit sees it.
+  - The per-block retrained probes would show this as a sawtooth that peaks at the last blocks of each group.
+- **Final runs:** every kmain scene, seed 0, leace and rand with every block's chain eraser -> `runs/c9c/ltx2b/{scene}_{cond}_s0/` (video, acts, meta as C9b; meta `chain` records groups, fit scenes, chain file).
+  - Jobs `c9cs1of4`..`c9cs4of4` load both chains. Without a `chain.json` they stop at once: launch them only after both chain jobs have pushed.
+  - They fail rather than wait, because 4 idle pods for about 7 h would burn about 28 GPU-hours.
+- **Budget (RTX 3090):**
+  - Chains `c9cchain-leace` and `c9cchain-rand` run on two pods at once: 4 passes x 100 clips x ~55 s = 6.1 h, plus fits, load and setup, about 6.8 h wall each.
+  - Shards: about 1.5 h each.
+  - Total about 20 GPU-hours.
+  - Unverified: 55 s per acts-only clip is scaled from 66-79 s full clips (38 of 50 steps). The checks on chain activations (groups 1-4) are not tested before the run.
+- **Readout:** `python -m pilot.analysis c9c` -> `results/c3_ltx2b_c9c_*`, as c9b: video rho for B1 s0 / leace / rand with bootstrap CIs on the paired differences.
+  - The per-block probes in `_probe.csv` are now two: retrained within each condition (`probe_mra`), and trained on clean B1 clips of the other scenes (`clean_r2`, `clean_mra`; this also applies to c9 and c9b).
+  - **Reading:** if the chain scrubs speed, the retrained probe on leace falls well below B1 at blocks >= 7, unlike C9b's 0.88-0.96. "Information used" is rho(leace) < rho(rand) with the CI excluding 0.
+
 ## B-ratio: why only 5/30 clips are measurable
 
 - **First diagnosis (wrong):** the kratio balls are 25–41 px, about one LTX latent cell.

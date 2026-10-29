@@ -25,15 +25,19 @@ def _u8(video):
     return (np.clip(video, 0, 1) * 255).astype(np.uint8) if video.dtype != np.uint8 else video
 
 
+class StopDenoise(Exception):
+    """Raised by Capture.callback after the last captured step when only the activations are wanted."""
+
+
 class Capture:
     """Forward hooks that pool block outputs at selected denoising steps."""
 
-    def __init__(self, cfg, n_steps, fractions, token_grid, obj_mask):
+    def __init__(self, cfg, n_steps, fractions, token_grid, obj_mask, stop_early=False):
         self.cfg, self.grid, self.obj = cfg, token_grid, obj_mask            # obj_mask: bool (F, H, W) tokens
         self.steps = sorted({int(round(f * (n_steps - 1))) for f in fractions})
         self.step, self.seen, self.acts, self.handles = 0, set(), {}, []
         self.final_latent = None
-        self.n_steps = n_steps
+        self.n_steps, self.stop_early = n_steps, stop_early
 
     def attach(self, transformer):
         for group in self.cfg["blocks"]:
@@ -66,6 +70,8 @@ class Capture:
 
     def callback(self, _pipe, i, _t, kwargs):
         self.step = i + 1
+        if self.stop_early and i >= self.steps[-1]:
+            raise StopDenoise
         if i == self.n_steps - 1 and "latents" in kwargs and self.final_latent is None:   # chunked: first chunk
             self.final_latent = kwargs["latents"].detach().float().cpu()
         return kwargs
@@ -227,19 +233,22 @@ class Generator:
     def blocks(self, group=None):
         return getattr(self.pipe.transformer, group or self.cfg["blocks"][0])
 
-    def generate(self, cond_frames, prompt, seed, obj_box=None, in_wh=(854, 480), capture=True, hooks=()):
-        """hooks: extra (module, forward_hook) pairs active during this call only (used for steering)."""
+    def generate(self, cond_frames, prompt, seed, obj_box=None, in_wh=(854, 480), capture=True, hooks=(), acts_only=False):
+        """hooks: extra (module, forward_hook) pairs active during this call only (used for steering).
+        acts_only: stop denoising after the last captured step, no decode -> dict(acts, meta=dict(wall_s))."""
         c = self.cfg
         grid = token_grid(c)
         cap = Capture(c, c["steps"], self.run_cfg["capture_fractions"], grid,
-                      object_token_mask(c, grid, obj_box, in_wh))
+                      object_token_mask(c, grid, obj_box, in_wh), stop_early=acts_only)
         cap.handles += [m.register_forward_hook(fn) for m, fn in hooks]   # first: capture then sees steered output
-        if capture:
+        if capture or acts_only:
             cap.attach(self.pipe.transformer)
         gen = torch.Generator(self.device).manual_seed(seed)
         t0 = time.time()
         try:
             video = np.asarray(self._call(list(cond_frames), prompt, gen, cap.callback))
+        except StopDenoise:
+            return dict(acts=cap.arrays(), meta=dict(wall_s=round(time.time() - t0, 1)))
         finally:
             cap.detach()
         wall = time.time() - t0

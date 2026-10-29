@@ -6,7 +6,8 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
-LTX pods (LTX_JOB=gen1..gen4|probe|probe2|stats2|sKofN|{model}sKofN|{model}probe|rescore, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
+LTX pods (LTX_JOB=gen1..gen4|probe|probe2|stats2|sKofN|c9[bc]sKofN|c9cchain-COND|{model}sKofN|{model}probe|rescore,
+scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
 patterns derived from the job's steps): PATTERNS (pull) = inputs + the job's runs, logs and
 results (probe, probe2: also every runs/*/ltx2b; shards sKofN: only runs/*/ltx2b/*/meta.json and score.json, so
 PATTERNS is not a superset of PUSH_PATTERNS); PUSH_PATTERNS = only the job's own files.
@@ -45,9 +46,14 @@ elif os.environ.get("LTX_JOB"):
     if re.fullmatch(r"s\d+of\d+", j):     # phase 2 shard: only the old clips' meta/score (skip check, scorer), no videos
         PATTERNS = base + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json")]
         PATTERNS.append("assets_cache/**")  # Poly Haven lists + maps from the laptop: same choices as the pilot, no downloads
-    if re.fullmatch(r"c9b?s\d+of\d+", j):   # phase 3 C9 / C9b: the B1 fit data (acts + meta, no videos), input renders
-        PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4", "runs/b1/ltx2b/*/acts.npz",
-                    "runs/b1/ltx2b/*/meta.json", "results/p6_ltx2b_hspeed_obj.csv"] + mine
+    if j.startswith("c9cchain-"):          # C9c chain: input renders, B1 seed-0 acts (group 0), its own chain (resume)
+        PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4", "runs/b1/ltx2b/*_s0/acts.npz"] + mine + \
+            [f"{r}/**" for r in LTX_RUNS[j]]
+        PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
+    if re.fullmatch(r"c9[bc]?s\d+of\d+", j):   # phase 3 C9 / C9b: input renders, the B1 fit data (acts + meta, no videos);
+        fit = ["runs/c9c_chain/ltx2b/*/chain.json", "runs/c9c_chain/ltx2b/*/g*.npz"] if j.startswith("c9c") else \
+            ["runs/b1/ltx2b/*/acts.npz", "runs/b1/ltx2b/*/meta.json", "results/p6_ltx2b_hspeed_obj.csv"]   # C9c: the chains
+        PATTERNS = ["data/scenes/**", "data/renders/kmain/*_input.mp4"] + fit + mine
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
         # a relaunched shard: every shard's meta.json (cheap), and its own clips' video + score, so the job's score step
         # scores clips an earlier pod generated but never scored (it timed out first)
