@@ -1,9 +1,11 @@
 """CPU check of the per-model pod jobs (run_pilot.MODEL_JOBS) and what sync.py / setup_runpod.sh derive from them.
 Needs data/scenes (kmain, kgrav) and data/real/manifest.json: python scripts/sync.py pull, or a laptop checkout.
     python -m tests.test_run_pilot"""
+import argparse
 import importlib
 import os
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 sys.path.insert(0, "scripts")
@@ -40,4 +42,24 @@ assert "runs/b1real/cosmos2b/**" not in sync.PUSH_PATTERNS and "results/*_ltx_co
 assert {"data/renders/kmain/*_input.mp4", "data/renders/kgrav/*_input.mp4", "runs/b1/cosmos2b/*/meta.json",
         "runs/b5/cosmos2b/*/score.json", "runs/b1/cosmos2b/*/video.mp4"} <= set(sync.PATTERNS), sync.PATTERNS
 assert not any("b1real" in p or "ltx2b" in p for p in sync.PATTERNS)
+
+# stats2: pulls acts/meta/score + p6 + full renders, pushes only its own results and logs
+assert [s["name"] for s in LTX_JOBS["stats2"]] == ["g1a", "nested:ltx2b", "nested:cosmos2b", "nested:vace13"]
+assert job_repos("stats2") == [sam2]
+os.environ["LTX_JOB"] = "stats2"
+sync = importlib.reload(sync)
+pulled = lambda f: any(fnmatch(f, p) for p in sync.PATTERNS)
+pushed = lambda f: any(fnmatch(f, p) for p in sync.PUSH_PATTERNS)
+assert all(pulled(f"runs/{e}/{m}/kmain_cv_00_s0/{x}") for e in ("b1", "b5") for m in ("ltx2b", "cosmos2b", "vace13")
+           for x in ("acts.npz", "meta.json", "score.json"))
+assert pulled("data/renders/kmain/kmain_ca_07.mp4") and pulled("results/p6_vace13_e_obj.csv") and pulled("data/scenes/kmain/kmain_ca_07.json")
+assert not any(pulled(f) for f in ("data/renders/kmain/kmain_ca_07_input.mp4", "runs/b1/ltx2b/kmain_cv_00_s0/video.mp4",
+                                   "runs/b1/ltx2b/kmain_cv_00_s0/latent.pt", "runs/b1real/vace13/x/acts.npz"))
+outs = [s["cmd"][s["cmd"].index("--out") + 1] for s in LTX_JOBS["stats2"] if "--out" in s["cmd"]] + \
+    [f"results/c3_{m}_nested{x}.csv" for m in ("ltx2b", "cosmos2b", "vace13") for x in ("", "_clips")]
+assert all(pushed(f) for f in outs + ["data/logs/pilot_ltx_stats2.log"]), outs
+assert not any(pushed(f) for f in ("results/p6_ltx2b_g_obj.csv", "results/c3_ltx2b_gap.csv", "runs/b1/ltx2b/x/acts.npz",
+                                   "data/renders/kmain/kmain_ca_07.mp4", "data/scenes/kmain/kmain_ca_07.json"))
+from vast_launch import worker_label
+assert worker_label(argparse.Namespace(job="stats2", n=1), 1) == "kvs-ltxstats2-1of1"
 print("run_pilot job checks passed")

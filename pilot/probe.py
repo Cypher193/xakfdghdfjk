@@ -52,16 +52,19 @@ def load(runs, model, exps, target, scene_root="data/scenes"):
     return feats, np.array(ys), np.array(groups)
 
 
+def fit(X, y_log, groups, n_splits=3):
+    """Ridge on standardised X, penalty chosen by scene-split CV (GroupKFold, MSE of ln y)."""
+    return GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": ALPHAS},
+                        cv=GroupKFold(min(n_splits, len(np.unique(groups)))),
+                        scoring="neg_mean_squared_error").fit(X, y_log, groups=groups)
+
+
 def cv_predict(X, y_log, groups, n_splits=5):
     """Out-of-fold predictions of ln(y); ridge penalty chosen inside each fold, also split by scene."""
     pred = np.empty_like(y_log)
     k = min(n_splits, len(np.unique(groups)))
     for tr, te in GroupKFold(k).split(X, y_log, groups):
-        inner = min(3, len(np.unique(groups[tr])))
-        model = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": ALPHAS},
-                             cv=GroupKFold(inner), scoring="neg_mean_squared_error")
-        model.fit(X[tr], y_log[tr], groups=groups[tr])
-        pred[te] = model.predict(X[te])
+        pred[te] = fit(X[tr], y_log[tr], groups[tr]).predict(X[te])
     return pred
 
 
@@ -116,10 +119,7 @@ def direction(runs, model, exps, target, group, block, step, pool="obj"):
     Returns (unit vector, std of projections onto it); +direction raises the predicted ln(target)."""
     feats, y, g = load(runs, model, exps, target)
     X = feats[f"{group}/{pool}"][block, step]
-    model_ = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": ALPHAS},
-                          cv=GroupKFold(min(5, len(np.unique(g)))), scoring="neg_mean_squared_error")
-    model_.fit(X, np.log(y), groups=g)
-    scaler, ridge = model_.best_estimator_.named_steps.values()
+    scaler, ridge = fit(X, np.log(y), g, n_splits=5).best_estimator_.named_steps.values()
     w = ridge.coef_ / scaler.scale_
     w = w / np.linalg.norm(w)
     return w.astype(np.float32), float(np.std(X @ w))
