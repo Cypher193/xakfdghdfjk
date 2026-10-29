@@ -30,6 +30,7 @@ def repo_id():
 
 
 IGNORE = ["**/*.partial.mp4", "**/*.tmp"]      # clips still being written
+BROKEN = ["runs/b1/ltx2b/kmain_cv_41_s2/video.mp4"]   # HF size metadata wrong: every pull of it fails ("File size mismatch")
 ROOT = Path(__file__).resolve().parents[1]
 if os.environ.get("SCREEN_TIER"):
     from run_pilot import screen_models, tag
@@ -106,7 +107,8 @@ PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploa
 def pull():
     for attempt in range(4):    # xet transfers fail now and then ("File size mismatch", probe2 setup); resumes on retry
         try:
-            snapshot_download(repo_id(), repo_type="dataset", local_dir=ROOT, allow_patterns=PATTERNS)
+            snapshot_download(repo_id(), repo_type="dataset", local_dir=ROOT, allow_patterns=PATTERNS,
+                              ignore_patterns=BROKEN)
             break
         except Exception as e:
             if attempt == 3:
