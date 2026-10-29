@@ -64,7 +64,7 @@ assert sync.PUSH_PATTERNS == ["data/logs/*_ltx_cosmos2bsteer*", "results/*_ltx_c
 assert {"runs/b1/cosmos2b/*/acts.npz", "results/p6_cosmos2b_hspeed_obj.csv"} <= set(sync.PATTERNS)
 
 # stats2: pulls acts/meta/score + p6 + full renders, pushes only its own results and logs
-assert [s["name"] for s in LTX_JOBS["stats2"]] == ["g1a", "nested:ltx2b", "nested:cosmos2b", "nested:vace13"]
+assert [s["name"] for s in LTX_JOBS["stats2"]] == ["nested:ltx2b", "nested:cosmos2b", "nested:vace13"]
 assert job_repos("stats2") == [sam2]
 os.environ["LTX_JOB"] = "stats2"
 sync = importlib.reload(sync)
@@ -72,7 +72,7 @@ pulled = lambda f: any(fnmatch(f, p) for p in sync.PATTERNS)
 pushed = lambda f: any(fnmatch(f, p) for p in sync.PUSH_PATTERNS)
 assert all(pulled(f"runs/{e}/{m}/kmain_cv_00_s0/{x}") for e in ("b1", "b5") for m in ("ltx2b", "cosmos2b", "vace13")
            for x in ("acts.npz", "meta.json", "score.json"))
-assert pulled("data/renders/kmain/kmain_ca_07.mp4") and pulled("results/p6_vace13_e_obj.csv") and pulled("data/scenes/kmain/kmain_ca_07.json")
+assert pulled("results/p6_vace13_e_obj.csv") and pulled("data/scenes/kmain/kmain_ca_07.json")
 assert not any(pulled(f) for f in ("data/renders/kmain/kmain_ca_07_input.mp4", "runs/b1/ltx2b/kmain_cv_00_s0/video.mp4",
                                    "runs/b1/ltx2b/kmain_cv_00_s0/latent.pt", "runs/b1real/vace13/x/acts.npz"))
 outs = [s["cmd"][s["cmd"].index("--out") + 1] for s in LTX_JOBS["stats2"] if "--out" in s["cmd"]] + \
@@ -82,4 +82,21 @@ assert not any(pushed(f) for f in ("results/p6_ltx2b_g_obj.csv", "results/c3_ltx
                                    "data/renders/kmain/kmain_ca_07.mp4", "data/scenes/kmain/kmain_ca_07.json"))
 from vast_launch import worker_label
 assert worker_label(argparse.Namespace(job="stats2", n=1), 1) == "kvs-ltxstats2-1of1"
+
+# rescore (configs/deviations.md D3): one SAM2-only pod; every result file it writes is in its own push globs
+steps = LTX_JOBS["rescore"]
+assert [s["name"] for s in steps] == ["p0:cotracker3", "score:rescore", "p0:sam2"] and job_repos("rescore") == [sam2]
+assert all(s["cmd"][s["cmd"].index("--tracker") + 1] == "cotracker3" for s in steps[:2])
+os.environ["LTX_JOB"] = "rescore"
+sync = importlib.reload(sync)
+match = lambda f, pats: any(fnmatch(f, p) for p in pats)
+written = [a for s in steps for a in s["cmd"] if a.startswith("results/")]
+assert len(written) == 4 and all(match(f, sync.PUSH_PATTERNS) for f in written), written
+for e, m in (("b1", "ltx2b"), ("b5", "vace13"), ("b1real", "cosmos2b"), ("bratio2", "ltx2b")):
+    d = f"runs/{e}/{m}/x_s0"
+    assert match(f"{d}/score_v2.json", sync.PUSH_PATTERNS) and not match(f"{d}/score.json", sync.PUSH_PATTERNS)
+    assert match(f"{d}/video.mp4", sync.PATTERNS) and match(f"{d}/meta.json", sync.PATTERNS)
+    assert not match(f"{d}/acts.npz", sync.PATTERNS)
+assert match("data/renders/kmain/kmain_cv_07.mp4", sync.PATTERNS)
+assert not match("data/renders/kmain/kmain_cv_07_input.mp4", sync.PATTERNS) and not match("runs/b2nl/ltx2b/x_s0/video.mp4", sync.PATTERNS)
 print("run_pilot job checks passed")

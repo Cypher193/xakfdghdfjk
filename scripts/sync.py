@@ -6,7 +6,7 @@
 
 Model weights are not synced (re-download from the Hub). Uses HF_TOKEN. Pushes are resumable and only
 upload changed files. Repo: HF_DATA_REPO, default <your HF user>/cvpr-vail-pilot.
-LTX pods (LTX_JOB=gen1..gen4|probe|probe2|stats2|sKofN|{model}sKofN|{model}probe, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
+LTX pods (LTX_JOB=gen1..gen4|probe|probe2|stats2|sKofN|{model}sKofN|{model}probe|rescore, scripts/ltx_pod.sh; {model}: run_pilot.MODEL_JOBS,
 patterns derived from the job's steps): PATTERNS (pull) = inputs + the job's runs, logs and
 results (probe, probe2: also every runs/*/ltx2b; shards sKofN: only runs/*/ltx2b/*/meta.json and score.json, so
 PATTERNS is not a superset of PUSH_PATTERNS); PUSH_PATTERNS = only the job's own files.
@@ -71,12 +71,17 @@ elif os.environ.get("LTX_JOB"):
                     "runs/b1/cosmos2b/*/meta.json", "results/p6_cosmos2b_hspeed_obj.csv"] + mine + \
             [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json", "video.mp4")]
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
-    if j == "stats2":                     # G1a: scenes + full kmain renders; nested gap: acts/meta/score + p6 best rows
+    if j == "stats2":                     # nested gap: acts/meta/score + p6 best rows
         from run_pilot import STATS_MODELS
-        PATTERNS = ["data/scenes/**", "data/renders/kmain/kmain_c?_??.mp4"] + mine \
+        PATTERNS = ["data/scenes/**"] + mine \
             + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5") for m in STATS_MODELS for f in ("acts.npz", "meta.json", "score.json")] \
             + [f"results/p6_{m}_{t}_obj.csv" for m in STATS_MODELS for t in ("hspeed", "g", "e")]
-        PUSH_PATTERNS = mine + ["results/c3_*_nested*", "results/p0_renders_kmain100.csv"]
+        PUSH_PATTERNS = mine + ["results/c3_*_nested*"]
+    if j == "rescore":                    # G1b re-score: videos + meta (+ score_v2 of a relaunch), full kmain renders for P0
+        from run_pilot import RESCORE_RUNS
+        PATTERNS = ["data/scenes/**", "data/real/manifest.json", "data/renders/kmain/kmain_*_??.mp4"] + mine + \
+            [f"{r}/*/{f}" for r in RESCORE_RUNS for f in ("video.mp4", "meta.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + [f"{r}/*/score_v2.json" for r in RESCORE_RUNS]
     gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
     if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;
         import yaml                       # a relaunch scores clips an earlier pod never scored; ~3 MB a clip). Not the

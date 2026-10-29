@@ -9,9 +9,12 @@
     python -m pilot.analysis gates      # results/gates_{model}.md
     python -m pilot.analysis all [--no-fetch]
     python -m pilot.analysis selftest
+    python -m pilot.analysis g1b        # G1b measurability per model x exp, score.json (SAM2) vs score_v2.json (CoTracker3)
     ... --model cosmos2b                # any subcommand; default ltx2b. Missing inputs skip with one line.
+    ... --v2                            # read score_v2.json (job rescore, configs/deviations.md D3): gap, gates, ...
 
-Outputs: results/c3_{model}_*.csv / .json / gates_{model}.md. Probe targets are ground truth, splits are by scene.
+Outputs: results/c3_{model}_*.csv / .json / gates_{model}.md (--v2: c3_{model}_v2_*, gates_{model}_v2.md).
+Probe targets are ground truth, splits are by scene.
 """
 import argparse
 import json
@@ -27,9 +30,10 @@ from sklearn.model_selection import GroupKFold
 
 from pilot import metrics, probe
 
-M = "ltx2b"                  # both reset from --model in __main__
+M = "ltx2b"                  # M, OUT and SCORE are reset from --model / --v2 in __main__
 REPO = "CypherNotHere/cvpr-vail-pilot"
 OUT = f"results/c3_{M}_"
+SCORE = "score.json"
 TARGET_EXPS = {"hspeed": ["b1"], "g": ["b1", "b5"], "e": ["b1", "b5"]}
 RUN = Path("runs")
 
@@ -39,9 +43,9 @@ def fetch():
     from huggingface_hub import snapshot_download
     pats = ["data/scenes/**"]
     for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b".split():
-        pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "acts.npz", "latent.pt")]
+        pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "score_v2.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
-    pats += [f"results/p6_{M}_*.csv", "results/show_*.csv"]
+    pats += [f"results/p6_{M}_*.csv", "results/show_*.csv", "results/*_ltx_rescore*"]   # g1b: fetch each --model
     snapshot_download(REPO, repo_type="dataset", local_dir=".", allow_patterns=pats, max_workers=8)
     print("fetched", REPO)
 
@@ -68,9 +72,9 @@ def load(exps, target, model=None):
     return cl, feats, y, g
 
 
-def show(exp):
+def show(exp, model=None, score=None):
     rows = []
-    for s in sorted((RUN / exp / M).glob("*/score.json")):
+    for s in sorted((RUN / exp / (model or M)).glob(f"*/{score or SCORE}")):
         m = json.loads((s.parent / "meta.json").read_text(encoding="utf-8"))
         rows.append(dict(exp=exp, dir=s.parent.name, scene=m["scene"].split("_g")[0], seed=m["seed"],
                          cond=m.get("cond"), alpha=m.get("alpha")) | json.loads(s.read_text(encoding="utf-8")))
@@ -356,6 +360,37 @@ def c9(n_boot=5000, exp="c9"):
     print(df.groupby("cond").probe_mra.agg(["mean", "max"]).join(df.groupby("cond").apply(lambda d: d.loc[d.probe_mra.idxmax(), ["block", "step"]], include_groups=False)).to_string())
 
 
+# ---------------------------------------------------------------- G1b, SAM2 vs CoTracker3 readout
+def g1b(faults="results/faults_ltx_rescore.csv"):
+    """Measurable share per model x exp from score.json and score_v2.json (v1 also on the clips v2 covers, so the two are
+    paired); per-model verdict = min over the rendered exps, as in gates. Then why SAM2 rejects each ball (job rescore)."""
+    thr = __import__("yaml").safe_load(Path("configs/gates.yaml").read_text(encoding="utf-8"))["G1_tracker"]["b_min_measurability"]
+    rows = []
+    for m in ("ltx2b", "cosmos2b", "vace13"):
+        for e in ("b1", "b5", "bratio2", "b1real"):
+            a, b = show(e, m, "score.json"), show(e, m, "score_v2.json")
+            if len(a):
+                same = a[a.dir.isin(b.dir)] if len(b) else a.iloc[:0]
+                rows.append(dict(model=m, exp=e, n=len(a), sam2=a.measurable.mean(), n_v2=len(b),
+                                 sam2_same=same.measurable.mean() if len(same) else np.nan,
+                                 v2=b.measurable.mean() if len(b) else np.nan))
+    df = pd.DataFrame(rows)
+    df.to_csv("results/c3_g1b.csv", index=False)
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
+    verdict = lambda v: "no scores" if np.isnan(v) else f"{v:.2f} {'PASS' if v >= thr else 'FAIL'}"
+    for m, d in df[df.exp != "b1real"].groupby("model"):        # b1real is G10's real-footage side
+        print(f"G1b {m} (min over exps, >= {thr}): SAM2 {verdict(d.sam2.min())}; v2 {verdict(d.v2.min())}"
+              f" (exps without v2 scores: {list(d.exp[d.n_v2 == 0])})")
+    if Path(faults).exists():
+        f = pd.read_csv(faults)
+        lost = ["vanished", "offframe", "shrunk", "grown"]           # the frames the measurability rule rejects
+        f["sam2_ok"] = (f.n - f[lost].sum(axis=1)) / f.n >= 0.8
+        f["cause"] = np.where(f.sam2_ok, "measurable", f[lost].idxmax(axis=1))
+        print(f"\nwhy SAM2 rejects each ball ({faults}; frame-count argmax of the rejected frames)")
+        print(pd.crosstab([f.model, f.exp], f.cause).to_string())
+        print(f.groupby(["model", "exp"])[["split", "recoloured", "lost_seen"]].apply(lambda d: (d > 0).mean()).round(2).to_string())
+
+
 # ---------------------------------------------------------------- gates
 def gates():
     name = {"ltx2b": "LTX-2B", "cosmos2b": "Cosmos-2B", "vace13": "VACE-1.3B"}.get(M, M)
@@ -367,13 +402,12 @@ def gates():
     rows = []
     add = lambda gate, value, thr, verdict, src: rows.append((gate, value, thr, verdict, src))
 
-    thr, p0 = y["G1_tracker"]["a_min_sym_mra_vs_gt"], Path("results/p0_renders_kmain100.csv")
-    if p0.exists():      # renders, not generated clips: the same row for every model; QuantiPhy part: deviations.md D1
-        d = pd.read_csv(p0)
-        mra = d.filter(like="_sym_mra").stack().mean()
-        add("G1a tracker vs GT", f"mean sym MRA {mra:.3f} over {len(d)} full kmain renders (" + ", ".join(
-            f"{c.removesuffix('_sym_mra')} {v:.2f}" for c, v in d.filter(like="_sym_mra").mean().items()) +
-            f"), measurable {d.measurable.mean():.2f}", f">= {thr} sym MRA", "PASS" if mra >= thr else "FAIL", p0.as_posix())
+    thr = y["G1_tracker"]["a_min_sym_mra_vs_gt"]
+    p0 = Path(f"results/p0_renders_{'cotracker3' if SCORE == 'score_v2.json' else 'sam2'}_ltx_rescore.csv")   # job rescore
+    if p0.exists():
+        mra = pd.read_csv(p0).filter(like="_sym_mra").stack().mean()
+        add("G1a tracker vs GT", f"renders part: mean sym MRA {mra:.3f} on the full kmain renders (QuantiPhy val part: D1)",
+            f">= {thr} sym MRA", "PASS" if mra >= thr else "FAIL", str(p0))
     else:
         add("G1a tracker vs GT", "-", f">= {thr} sym MRA", "not evaluated",
             f"needs the tracker-vs-GT run on K-main renders and QuantiPhy val (results/p0_renders.csv, p0_qval.csv are not {short} clips)")
@@ -381,7 +415,7 @@ def gates():
     meas = {e: show(e).measurable.mean() for e in ("b1", "b5", "b2nl", "b3", ratio) if len(show(e))}
     thr = y["G1_tracker"]["b_min_measurability"]
     add("G1b measurability", ", ".join(f"{e} {v:.2f}" for e, v in meas.items()), f">= {thr} (verdict: min over exps)",
-        "PASS" if min(meas.values()) >= thr else "FAIL", f"runs/{{{','.join(meas)}}}/{M}/*/score.json")
+        "PASS" if min(meas.values()) >= thr else "FAIL", f"runs/{{{','.join(meas)}}}/{M}/*/{SCORE}")
     b1 = show("b1")
     m1 = b1[b1.measurable & b1.hspeed_sym_mra.notna()]
     med = m1.hspeed_sym_mra.median()
@@ -439,10 +473,10 @@ def gates():
             f"runs/{{b1,b1real}}/{M}/*/score.json")
     else:
         add("G10 domain gap", "no b1real scores", "", "not evaluated", "runs/b1real")
-    md = [f"# Gates, {name} (generated by pilot/analysis.py)", "", "| Gate | Value | Threshold | Verdict | Source |", "|---|---|---|---|---|"]
+    md = [f"# Gates, {name} (generated by pilot/analysis.py from {SCORE})", "", "| Gate | Value | Threshold | Verdict | Source |", "|---|---|---|---|---|"]
     md += [f"| {' | '.join(str(c).replace('|', '/') for c in row)} |" for row in rows]
     Path("results").mkdir(exist_ok=True)
-    Path(f"results/gates_{M}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    Path(f"results/gates_{M}{'_v2' if SCORE == 'score_v2.json' else ''}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print("\n".join(md))
 
 
@@ -482,13 +516,14 @@ def selftest():
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["fetch", "gap", "nested", "c5", "c6", "c9", "c9b", "gates", "all", "selftest"])
+    ap.add_argument("cmd", choices=["fetch", "gap", "nested", "c5", "c6", "c9", "c9b", "gates", "all", "selftest", "g1b"])
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--model", default="ltx2b")
+    ap.add_argument("--v2", action="store_true", help="show side from score_v2.json (CoTracker3 readout)")
     a = ap.parse_args()
-    M, OUT = a.model, f"results/c3_{a.model}_"
-    fns = dict(fetch=fetch, gap=gap, nested=nested, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates,
-               selftest=selftest)
+    M, OUT, SCORE = a.model, f"results/c3_{a.model}{'_v2' * a.v2}_", "score_v2.json" if a.v2 else "score.json"
+    fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), gates=gates,
+               selftest=selftest, g1b=g1b, nested=nested)
     for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
         try:
