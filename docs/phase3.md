@@ -128,6 +128,12 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - The per-block probes in `_probe.csv` are now two: retrained within each condition (`probe_mra`), and trained on clean B1 clips of the other scenes (`clean_r2`, `clean_mra`; this also applies to c9 and c9b).
   - **Reading:** if the chain scrubs speed, the retrained probe on leace falls well below B1 at blocks >= 7, unlike C9b's 0.88-0.96. "Information used" is rho(leace) < rho(rand) with the CI excluding 0.
 
+- **Outcome of the chains (2026-10-30):**
+  - rand: all 5 groups passed `rand_kept`.
+  - leace: groups 0-2 (blocks 7-19) passed. At block 20 speed is readable from the chain activations at R² 0.93-0.95 (clean B1 block 20: about 0.6), and the fitted eraser leaves (a) 0.07-0.08 against the 0.06 target, so the chain stopped.
+  - Reading: after 13 blocks of sequential erasure of the input object tokens, the model carries speed at block 20 more strongly than without erasure. The erasure touches only the object tokens of the input frames, so the speed code is likely rebuilt from other tokens.
+  - Decision (user, 2026-10-30): no threshold change. The shards generate with groups 0-2 of both chains (`--use-groups 3`: erasers at blocks 7-19 for leace and rand alike).
+
 ## B-ratio: why only 5/30 clips are measurable
 
 - **First diagnosis (wrong):** the kratio balls are 25–41 px, about one LTX latent cell.

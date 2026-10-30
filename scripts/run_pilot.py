@@ -224,7 +224,7 @@ def _c9_jobs():
                                    cmd=[PY, "-m", "pilot.leace", "--model", "ltx2b", "--chain", c,
                                         "--groups", str(C9C_GROUPS), "--fit-scenes", str(C9C_FIT)])]
             for c in ("leace", "rand")}
-    for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"]), ("c9c", ["--exp", "c9c"])):
+    for exp, extra in (("c9", []), ("c9b", ["--blocks", "7-27", "--exp", "c9b"]), ("c9c", ["--exp", "c9c", "--use-groups", "3"])):
         for k in range(1, C9_SHARDS + 1):
             ids = [f"{s}_{c}" for s in kmain_ids(k, C9_SHARDS, n_scenes("b1")) for c in ("leace", "rand")]
             clips, name = len(ids), f"{exp}s{k}of{C9_SHARDS}"

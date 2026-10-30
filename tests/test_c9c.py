@@ -69,7 +69,10 @@ with tempfile.TemporaryDirectory() as d:
     assert info["groups"] == groups and info["fit_scenes"] == [x["id"] for x in scenes] and info["cond"] == "leace"
     assert sorted(info["checks"]) == ["0", "1"] and np.array(info["checks"]["1"]).shape == (2, 3, 4)
     loaded, meta = load_chain(root)
-    assert sorted(loaded) == [0, 1] and meta["groups"] == groups and meta["file"].endswith("leace/chain.json")
+    assert sorted(loaded) == [0, 1] and meta["groups"] == groups and meta["file"].endswith("leace")
+    (root / "chain.json").unlink()                     # a chain that stopped after group 0: its first group still loads
+    part, meta = load_chain(root, 1)
+    assert sorted(part) == [0] and meta["groups"] == groups[:1] and meta["n_groups"] == 1
     # rand chain on the same group-0 acts (main() seeds g0 from B1 the same way): fit to permuted z, not to z
     (Path(d) / "rand" / "g0").mkdir(parents=True)
     for f in (root / "g0").glob("*.npy"):

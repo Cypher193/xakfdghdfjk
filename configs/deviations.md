@@ -34,7 +34,7 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - These failures trip the area rule (0.5–2× the frame-0 area) of the measurability gate. They are generator failures, not tracker failures.
   - Among the 5 measurable clips, median sym MRA is t_ratio 0.69 and h_ratio 0.81 (was 0.56 and 0.75).
 
-## D3 — G1b fail action: CoTracker3 readout as a second tracker (2026-10-30, after seeing data; PENDING USER APPROVAL)
+## D3 — G1b fail action: CoTracker3 readout as a second tracker (2026-10-30, after seeing data)
 
 - **Result that prompted it:** G1b (measurability ≥ 0.70 per model) fails for all three generators. B5 (kgrav): LTX-2B 0.41 (150 clips, 5 seeds), Cosmos-2B 0.40, VACE-1.3B 0.13 (30 clips each). B1: LTX 0.72, Cosmos 0.72, VACE 0.56. bratio2: LTX 0.17.
 - **Registered fail action:** "add CoTracker3 or stability filter; drop hard scenes; rerun P0 and P12".
@@ -56,4 +56,5 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - On a kmain render (48 frames) the median centroid error is 0.42 px and the area stays at 0.86-1.17x.
   - 4 failing B5 clips (LTX `kgrav_08_g2.0`, VACE `kgrav_02_g2.0`, Cosmos `kgrav_03_g0.5`, LTX `kgrav_06_g1.0`) all stay not measurable. The share of scored frames in the area band is 0.32, 0.09, 0.06 and 0.45.
 - **Expected outcome, stated before the run:** G1b should change little. Most failures in the sample are what the generator drew, and an honest second tracker has to reject those too. If CoTracker3 agrees with SAM2, G1b's failure is a show result (the generators break the object) rather than a measurement failure.
-- **Approved by:** pending. Nothing has been run with this mode on GPU.
+- **Approved by:** the user, on 2026-10-30, after the rescore run: report SAM2 (primary) and CoTracker3 side by side, with the fault breakdown.
+- **Outcome (job `rescore`, 2026-10-30):** P0 passes with both trackers on the 100 full renders (sym MRA: SAM2 0.96, CoTracker3 0.94). CoTracker3 does not rescue G1b: its measurability is not higher than SAM2's for any model (B5: Cosmos 0.47, VACE 0.17, LTX 0.09). The dominant fault in unmeasurable clips is a ball that grows (Cosmos), vanishes (LTX) or a mix (VACE). G1b stays FAIL.

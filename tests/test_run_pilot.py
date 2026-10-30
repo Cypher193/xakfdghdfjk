@@ -42,7 +42,7 @@ for c in ("leace", "rand"):                         # C9c: one chain job per con
     assert st["cmd"][st["cmd"].index("--chain") + 1] == c and st["est_s"] < 7.5 * 3600, st
 c9c = [i for k in range(1, 5) for i in LTX_JOBS[f"c9cs{k}of4"][0]["ids"]]
 assert sorted(c9c) == sorted(f"{s}_{c}" for s in kmain for c in ("leace", "rand"))
-assert LTX_JOBS["c9cs1of4"][0]["cmd"][-2:] == ["--exp", "c9c"]
+assert LTX_JOBS["c9cs1of4"][0]["cmd"][-4:] == ["--exp", "c9c", "--use-groups", "3"]
 
 sam2 = ("facebook/sam2.1-hiera-large", None)
 assert job_repos("cosmos2bs1of5") == [("nvidia/Cosmos-Predict2.5-2B", "diffusers/base/post-trained"), sam2]

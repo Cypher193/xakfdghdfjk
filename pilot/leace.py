@@ -141,15 +141,20 @@ def load_erasers(f):
             for b in sorted({k.split("/")[0] for k in z.files})}
 
 
-def load_chain(root):
-    """A finished chain (chain.json is written last) -> ({block: eraser}, info for meta.json)."""
+def load_chain(root, n_groups=None):
+    """A finished chain (chain.json is written last) -> ({block: eraser}, info for meta.json). n_groups: only the
+    first n groups, which may come from a chain that stopped later (2026-10-30: leace stopped at block 20)."""
     root = Path(root)
-    if not (root / "chain.json").exists():
+    if n_groups is None and not (root / "chain.json").exists():
         raise SystemExit(f"c9c: no finished chain at {root} (chain.json missing): job c9cchain-{root.name} must finish "
                          "and push first")
-    info = json.loads((root / "chain.json").read_text())
-    ers = {b: er for k in range(len(info["groups"])) for b, er in load_erasers(root / f"g{k}.npz").items()}
-    return ers, dict(file=(root / "chain.json").as_posix(), groups=info["groups"], fit_scenes=info["fit_scenes"])
+    n = n_groups or len(json.loads((root / "chain.json").read_text())["groups"])
+    files = [root / f"g{k}.npz" for k in range(n)]
+    if missing := [f.name for f in files if not f.exists()]:
+        raise SystemExit(f"c9c: chain {root} lacks {missing}")
+    groups = [sorted(load_erasers(f)) for f in files]
+    ers = {b: er for f in files for b, er in load_erasers(f).items()}
+    return ers, dict(file=root.as_posix(), groups=groups, n_groups=n)
 
 
 def main():
@@ -164,6 +169,7 @@ def main():
     ap.add_argument("--chain", choices=["leace", "rand"], help="C9c: fit this cond's chain of erasers (no videos)")
     ap.add_argument("--groups", type=int, default=5, help="C9c chain: split the blocks into this many near-equal groups")
     ap.add_argument("--fit-scenes", type=int, default=100, help="C9c chain: fit on the first N b1 scenes, seed 0")
+    ap.add_argument("--use-groups", type=int, help="C9c generation: only the chains' first N groups")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
@@ -187,7 +193,7 @@ def main():
         chain(gen, root, fit, inputs, groups, a.chain)
         return
     if a.exp == "c9c":        # both chains must be finished (jobs c9cchain-leace, c9cchain-rand)
-        chains = {c: load_chain(chain_dir(cfg, a.model, c)) for c in a.conds}
+        chains = {c: load_chain(chain_dir(cfg, a.model, c), a.use_groups) for c in a.conds}
         pick = lambda cond, i: chains[cond][0]
         lo, step = min(chains[a.conds[0]][0]), None
         extra = lambda cond: dict(blocks=sorted(chains[cond][0]), chain=chains[cond][1])
