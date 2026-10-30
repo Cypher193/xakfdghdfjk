@@ -297,7 +297,11 @@ RESCORE_JOBS = {"rescore": [   # 767 clips at ~15 s (SAM2 3.5-7 s/clip on a 3090
                           "--table", "results/show_v2_ltx_rescore.csv", "--faults", "results/faults_ltx_rescore.csv"],
         767 * 15),
     _p0("sam2")]}
-LTX_RUNS["rescore"] = []                                    # pull / push: sync.py's rescore branch
+# round-2 clips (seeds 1-2) postdate rescore: rescore2 scores only the Cosmos / VACE clips that lack score_v2.json
+RESCORE_JOBS["rescore2"] = [cmd("score:rescore2", ["-m", "pilot.score", "--tracker", "cotracker3", "--models", "cosmos2b",
+                                                   "vace13", "--table", "results/show_v2_ltx_rescore2.csv",
+                                                   "--faults", "results/faults_ltx_rescore2.csv"], 550 * 15)]
+LTX_RUNS["rescore"] = LTX_RUNS["rescore2"] = []                                    # pull / push: sync.py's rescore branch
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}

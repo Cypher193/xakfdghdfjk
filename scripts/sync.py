@@ -84,10 +84,12 @@ elif os.environ.get("LTX_JOB"):
             + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5") for m in STATS_MODELS for f in ("acts.npz", "meta.json", "score.json")] \
             + [f"results/p6_{m}_{t}_obj.csv" for m in STATS_MODELS for t in ("hspeed", "g", "e")]
         PUSH_PATTERNS = mine + ["results/c3_*_nested*"]
-    if j == "rescore":                    # G1b re-score: videos + meta (+ score_v2 of a relaunch), full kmain renders for P0
+    if j in ("rescore", "rescore2"):      # G1b re-score: videos + meta (+ score_v2 of a relaunch), full kmain renders for P0
         from run_pilot import RESCORE_RUNS
-        PATTERNS = ["data/scenes/**", "data/real/manifest.json", "data/renders/kmain/kmain_*_??.mp4"] + mine + \
-            [f"{r}/*/{f}" for r in RESCORE_RUNS for f in ("video.mp4", "meta.json", "score_v2.json")]
+        if j == "rescore2":               # round-2 Cosmos / VACE clips only; no P0
+            RESCORE_RUNS = [r for r in RESCORE_RUNS if not r.endswith("ltx2b")]
+        PATTERNS = ["data/scenes/**", "data/real/manifest.json"] + ["data/renders/kmain/kmain_*_??.mp4"] * (j == "rescore") \
+            + mine + [f"{r}/*/{f}" for r in RESCORE_RUNS for f in ("video.mp4", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"{r}/*/score_v2.json" for r in RESCORE_RUNS]
     gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
     if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;

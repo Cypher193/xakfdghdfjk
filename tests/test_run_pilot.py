@@ -116,6 +116,11 @@ for e, m in (("b1", "ltx2b"), ("b5", "vace13"), ("b1real", "cosmos2b"), ("bratio
     assert not match(f"{d}/acts.npz", sync.PATTERNS)
 assert match("data/renders/kmain/kmain_cv_07.mp4", sync.PATTERNS)
 assert not match("data/renders/kmain/kmain_cv_07_input.mp4", sync.PATTERNS) and not match("runs/b2nl/ltx2b/x_s0/video.mp4", sync.PATTERNS)
+sync = sync_for("rescore2")                         # round-2 fill-in: Cosmos / VACE only, no renders
+assert [s["name"] for s in LTX_JOBS["rescore2"]] == ["score:rescore2"] and job_repos("rescore2") == [sam2]
+assert match("runs/b1/vace13/x_s1/video.mp4", sync.PATTERNS) and match("runs/b5/cosmos2b/x_s2/score_v2.json", sync.PATTERNS)
+assert not match("runs/b1/ltx2b/x_s1/video.mp4", sync.PATTERNS) and not match("data/renders/kmain/kmain_cv_07.mp4", sync.PATTERNS)
+assert match("runs/b1/vace13/x_s1/score_v2.json", sync.PUSH_PATTERNS) and match("results/show_v2_ltx_rescore2.csv", sync.PUSH_PATTERNS)
 sync = sync_for("c9cchain-leace")                   # pulls B1 seed-0 acts + its own chain (resume), pushes only the chain
 assert {"runs/b1/ltx2b/*_s0/acts.npz", "runs/c9c_chain/ltx2b/leace/**"} <= set(sync.PATTERNS), sync.PATTERNS
 assert sync.PUSH_PATTERNS == ["data/logs/*_ltx_c9cchain-leace*", "results/*_ltx_c9cchain-leace*",
