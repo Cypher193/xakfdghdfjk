@@ -370,9 +370,7 @@ def clean_probe(X1, y1, g1, X, y, g, k=5):
     pred, ly = np.empty(len(y)), np.log(y)
     for _, te in GroupKFold(k).split(X, y, g):
         tr = ~np.isin(g1, g[te])
-        m = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": probe.ALPHAS},
-                         cv=GroupKFold(3), scoring="neg_mean_squared_error").fit(X1[tr], np.log(y1[tr]), groups=g1[tr])
-        pred[te] = m.predict(X[te])
+        pred[te] = probe.fit(X1[tr], np.log(y1[tr]), g1[tr]).predict(X[te])
     return 1 - ((pred - ly) ** 2).sum() / ((ly - ly.mean()) ** 2).sum(), float(metrics.sym_mra(np.exp(pred), y).mean())
 
 

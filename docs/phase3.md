@@ -134,6 +134,12 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - Reading: after 13 blocks of sequential erasure of the input object tokens, the model carries speed at block 20 more strongly than without erasure. The erasure touches only the object tokens of the input frames, so the speed code is likely rebuilt from other tokens.
   - Decision (user, 2026-10-30): no threshold change. The shards generate with groups 0-2 of both chains (`--use-groups 3`: erasers at blocks 7-19 for leace and rand alike).
 
+- **C9c result (2026-10-30, 200 clips, erasers at blocks 7-19, `results/c3_ltx2b_c9c_*`):**
+  - **Video rho on the 48 scenes measurable in all conditions:** B1 seed 0 0.745 [0.57, 0.85], leace 0.648 [0.40, 0.82], rand 0.602 [0.36, 0.77]. rho(rand) - rho(leace) = -0.05, CI [-0.18, 0.08]: "information used" is false, as in C9 and C9b.
+  - **Clean-trained probe on the leace runs:** R² of ln hspeed is negative at every block 7-27 (mean -0.63, max -0.08). The original speed direction is gone everywhere, including blocks 20-27 that have no eraser.
+  - **Retrained probe on the leace runs:** a sawtooth. At the first block of each group (7, 12, 16) it sits at the mean-only baseline (sym MRA 0.56). One block later it is back at 0.86-0.90, and from block 20 on it reaches 0.92-0.95, above B1 (0.75-0.78).
+  - **Reading:** each eraser removes speed at its own block, and the next block re-encodes it along a new direction. Generated motion does not depend on the linear speed code at the input object tokens. Exact one-block-per-group scrubbing would only push the sawtooth one block further.
+
 ## B-ratio: why only 5/30 clips are measurable
 
 - **First diagnosis (wrong):** the kratio balls are 25–41 px, about one LTX latent cell.
