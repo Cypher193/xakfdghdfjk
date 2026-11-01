@@ -68,6 +68,11 @@ elif os.environ.get("LTX_JOB"):
         todo = sorted(meta - {f.rsplit("/", 1)[0] for f in fs if f.endswith("/score.json")} - BAD)
         PATTERNS = ["data/scenes/**"] + mine + [f"{d}/{x}" for d in todo for x in ("video.mp4", "meta.json")]
         PUSH_PATTERNS = mine + [f"{d}/score.json" for d in todo]
+    if j.startswith("render3s"):          # round 3 input windows: old ones in (skipped by pilot.render), new ones out
+        from run_pilot import RENDER3_EXPS
+        sets = RENDER3_EXPS.values()
+        PATTERNS = ["data/scenes/**", "assets_cache/**"] + mine + [f"data/renders/{s}/*_input*" for s in sets]
+        PUSH_PATTERNS = mine + [f"data/renders/{s}/*_input*" for s in sets] + ["data/renders/kl3full/*"]
     if j == "bratio2":                    # renders its own inputs: scenes + Poly Haven cache in; renders + runs out
         PATTERNS = ["data/scenes/kratio2/**", "assets_cache/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
         PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]

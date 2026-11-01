@@ -246,7 +246,10 @@ render:
 experiments:
   b1:      {scenes: kmain, text: caption}
   b2nl:    {scenes: kmain, text: b2nl, video: false}
+  b2num:   {scenes: kmain, text: b2num, video: false}   # numbers instead of plain words; first 60 scenes (--limit 60)
   b3:      {scenes: kmain, text: b2nl}      # the b2nl description (plain words) WITH the input video
+  bl3:     {scenes: kl3, text: caption}     # B-L3, B1 input on the two-law scenes
+  bl3nl:   {scenes: kl3, text: b2nl, video: false}   # B-L3, B2-nl input
   b5:      {scenes: kgrav, text: caption}
   bratio:  {scenes: kratio, text: caption}
   bratio2: {scenes: kratio2, text: caption}   # B-ratio with 0.7-0.9 m balls (pilot/scenes.py kratio2)

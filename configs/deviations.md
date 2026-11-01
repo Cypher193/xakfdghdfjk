@@ -58,3 +58,15 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 - **Expected outcome, stated before the run:** G1b should change little. Most failures in the sample are what the generator drew, and an honest second tracker has to reject those too. If CoTracker3 agrees with SAM2, G1b's failure is a show result (the generators break the object) rather than a measurement failure.
 - **Approved by:** the user, on 2026-10-30, after the rescore run: report SAM2 (primary) and CoTracker3 side by side, with the fault breakdown.
 - **Outcome (job `rescore`, 2026-10-30):** P0 passes with both trackers on the 100 full renders (sym MRA: SAM2 0.96, CoTracker3 0.94). CoTracker3 does not rescue G1b. Measurability SAM2 -> CoTracker3, same clips: B1 Cosmos 0.70 -> 0.71, LTX 0.72 -> 0.56, VACE 0.55 -> 0.46; B5 Cosmos 0.40 -> 0.47, LTX 0.41 -> 0.09, VACE 0.13 -> 0.17. No model reaches 0.70 on B5 with either. CoTracker3 rejects 96 LTX clips SAM2 accepts (it accepts 2 SAM2 rejects); why is not yet checked. The dominant fault in unmeasurable clips is a ball that grows (Cosmos), vanishes (LTX) or a mix (VACE). G1b stays FAIL.
+
+## D4 — B-L3 and B2-num definitions (2026-11-01, before any B-L3 or B2-num clip)
+
+- **Proposal v5:** B-L3 uses "scenes that combine two laws", and an earlier draft named collision, slope with friction and projectile. B2-num uses "a matching description in numbers".
+- **Change:**
+  - `kl3` holds 15 collisions (momentum + restitution) and 15 ramps (gravity + sliding friction), rendered in Blender rather than Kubric like every other scene set. Projectiles are left out: a thrown ball that bounces is the same physics as the L2 `ca` family.
+  - In a collision the contact falls at 1.3-2 s, after every input window, so the input shows only the approach. The scored number is the struck ball's speed.
+  - On a ramp the box reaches the foot at t >= 1.6 s, also after every input window. The scored number is the horizontal acceleration on the slope.
+  - B2-num gives the size, speed or height, gravity and restitution directly, plus positions at t = 0 and 1 s for constant velocity. It does not list positions per frame, because frame rates differ per model.
+- **What is not changed:** gates, thresholds, the metric, the measurability rule and the tracker.
+- **New P0:** the `collide` and `ramp` readouts are new, so `results/p0_kl3_ltx_render3s1of3.csv` checks them against ground truth on 6 full renders before generation starts (G1a threshold, sym MRA >= 0.80).
+- **Approved by:** the user approved the experiment list on 2026-11-01. The scene families are my choice within it.

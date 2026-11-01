@@ -35,5 +35,5 @@ python scripts/sync.py pull                     # renders, runs, results from ea
 python -m pilot.download
 mkdir -p data/logs
 pkill -f "scripts/sync.py push" || true
-nohup python scripts/sync.py push --every 900 > "data/logs/sync${SCREEN_TIER:+_screen_$SCREEN_TIER}${LTX_JOB:+_ltx_$LTX_JOB}.log" 2>&1 &   # every 15 min
+nohup python scripts/sync.py push --every "${SYNC_EVERY:-900}" > "data/logs/sync${SCREEN_TIER:+_screen_$SCREEN_TIER}${LTX_JOB:+_ltx_$LTX_JOB}.log" 2>&1 &   # every 15 min
 echo "Setup done. Background sync running (data/logs/sync.log). Before terminating a pod: python scripts/sync.py push"

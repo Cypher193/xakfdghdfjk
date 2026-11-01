@@ -19,7 +19,7 @@ from pathlib import Path
 import bpy
 import numpy as np
 
-from pilot.scenes import object_track
+from pilot.scenes import object_track, ramp_foot
 
 CACHE = Path("assets_cache")
 API = "https://api.polyhaven.com"
@@ -89,6 +89,23 @@ def material(name, color=None, image=None, uv_scale=1.0, roughness=0.5):
         nt.links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
     return m
+
+
+def add_ramp(o, floor_z):
+    """Wedge whose top surface carries the box's centre line, half a box lower."""
+    th, d, h = math.radians(o["theta_deg"]), o["dir"], o["size_m"] / 2
+    xt, zt = o["x0"] - d * h * math.sin(th), o["z0"] - h * math.cos(th)
+    xf, zf = xt + d * o["ramp_len"] * math.cos(th), zt - o["ramp_len"] * math.sin(th)
+    y = 0.75
+    verts = [(xt, -y, zt), (xf, -y, zf), (xt, -y, floor_z), (xf, -y, floor_z),
+             (xt, y, zt), (xf, y, zf), (xt, y, floor_z), (xf, y, floor_z)]
+    faces = [(0, 1, 5, 4), (0, 2, 3, 1), (4, 5, 7, 6), (0, 4, 6, 2), (2, 6, 7, 3)]
+    mesh = bpy.data.meshes.new("ramp")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    ob = bpy.data.objects.new("ramp", mesh)
+    bpy.context.scene.collection.objects.link(ob)
+    mesh.materials.append(material("ramp", color=(0.32, 0.27, 0.22), roughness=0.7))
 
 
 def setup(scene_spec, gpu, samples, fps, seconds):
@@ -173,6 +190,12 @@ def setup(scene_spec, gpu, samples, fps, seconds):
         for f, (x, z) in enumerate(zip(xs, zs), start=1):
             ob.location = (x, 0.0, z)
             ob.keyframe_insert("location", frame=f)
+        if o["motion"] == "ramp":                             # the box lies on the slope, then flat on the floor
+            add_ramp(o, cam_spec["floor_z"])
+            t_foot = ramp_foot(scene_spec, o)[1]
+            for f, ti in enumerate(t, start=1):
+                ob.rotation_euler = (0.0, o["dir"] * math.radians(o["theta_deg"]) if ti < t_foot else 0.0, 0.0)
+                ob.keyframe_insert("rotation_euler", frame=f)
     return used
 
 

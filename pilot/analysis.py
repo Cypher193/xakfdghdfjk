@@ -42,7 +42,7 @@ RUN = Path("runs")
 def fetch():
     from huggingface_hub import snapshot_download
     pats = ["data/scenes/**"]
-    for e in "b1 b5 b2nl b3 b1real bratio bratio2 steer c9 c9b c9c".split():
+    for e in "b1 b5 b2nl b2num b3 bl3 bl3nl b1real bratio bratio2 steer c9 c9b c9c".split():
         pats += [f"runs/{e}/{M}/*/{f}" for f in ("meta.json", "score.json", "score_v2.json", "acts.npz", "latent.pt")]
     pats += [f"runs/p7/{M}_*/*/{f}" for f in ("meta.json", "acts.npz")]
     pats += [f"results/p6_{M}_*.csv", "results/show_*.csv", "results/*_ltx_rescore*"]   # g1b: fetch each --model

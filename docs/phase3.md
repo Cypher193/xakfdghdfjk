@@ -205,6 +205,34 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - `python -m pilot.analysis gap --v2 --model M` and `gates --v2` recompute the know-show gaps and the gates from `score_v2.json`, into `results/c3_{M}_v2_*` and `gates_{M}_v2.md`.
 - **Not re-scored:** LTX b2nl, b3, steer and c9. Under `--v2` the G1b row of `gates` covers b1, b5 and bratio2 only.
 
+## Round 3: the rest of the B runs on the three small models (2026-11-01)
+
+- **Scope (user, 2026-10-31 and 11-01):** B2-nl seeds 1-2, B2-num, B3 on Cosmos, B-L3, B5-frames on Cosmos and LTX, B-ratio. VACE's B5 extension, B5-text and Cosmos's G6-dependent work (C7, C8) are out. Budget about $125-135 of $164.80, verified and datacenter hosts allowed.
+
+| Experiment | Input | Models | Scenes × seeds | New clips |
+|---|---|---|---|---|
+| B2-nl | plain-word text, no video | Cosmos, VACE | 100 × seeds 1-2 | 400 |
+| B2-num | numeric text, no video | all 3 | 60 × 3 | 540 |
+| B3 | input window + plain-word text | Cosmos | 100 × 3 | 300 |
+| B-L3 (`bl3`, `bl3nl`) | caption + input window; plain-word text only | Cosmos, LTX | 30 × 2 × 3 | 360 |
+| B5-frames | input window at 0.5, 1, 2 g | Cosmos, LTX | 90 × 5 | 660 |
+| B-ratio (`bratio2`) | input window of two throws | all 3 | 40 × 3 | 330 |
+
+- **New scenes (`pilot/scenes.py`; old scenes unchanged, `tests/test_round3.py`):**
+  - `kgrav` grows from 30 to 90 scenes (20 new bases × 3 gravity values, own random stream).
+  - `kratio2` grows from 10 to 40 scenes (same stream, the first 10 are the old ones).
+  - `kl3` holds 15 collisions and 15 ramps. See `configs/deviations.md` D4.
+- **Numeric text (`describe_num`):** the plain-word description with numbers in place of the words. Size, speed and positions at t = 0 and 1 s for constant velocity; size, height, vertical speed, drift, gravity and restitution for bounces.
+- **Readouts (`track.readout`):**
+  - `collide`: speed of the struck ball over the last 40% of the scored track, stored as `v`, so it also fills `hspeed`.
+  - `ramp`: horizontal acceleration `a_slope` from a quadratic fit up to the fastest point.
+  - H7 compares each level's own number: L1 `v`, L2 `g`, L3 `v` and `a_slope`.
+- **Jobs (`run_pilot.ROUND3`):**
+  - `render3sKof3`: the new input windows. Pod 1 also renders 6 full kl3 clips and runs SAM2 on them against ground truth (`results/p0_kl3_ltx_render3s1of3.csv`).
+  - `{model}gKofN`: Cosmos 20 pods, VACE 11, LTX 2. Each pod runs one model, a slice of every experiment, then SAM2 scoring. They start after `render3`, because a pod pulls its inputs once.
+- **Hosts:** measured s/clip, 3090 vs 4090: Cosmos 619 vs 316, VACE 856 vs 389, LTX 69. At $0.25 and $0.43/h the 4090 costs the same or less per clip, so Cosmos and VACE fill the 4090s first. LTX and renders use 3090s.
+- **Next:** `rescore3` (CoTracker3 on the new clips), the probes on the larger B1 + B5 sets, `stats` with `--v2`, then C2-g and C2. C2 needs new velocity-scaled renders and is priced after generation.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

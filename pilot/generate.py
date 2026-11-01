@@ -113,7 +113,7 @@ def main():
             frames, box = rendered_inputs(spec, Path(cfg["paths"]["data"]) / "renders" / e["scenes"],
                                           mcfg["fps"], mcfg["cond_frames"])
             in_wh = (spec["camera"]["width"], spec["camera"]["height"])
-            prompt = spec[e["text"]] if e["text"] in spec else spec["caption"]
+            prompt = spec[e["text"]]                         # KeyError, not the caption: a stale scene file must not pass as b2num
         if e.get("video") is False:
             frames, box = [], None
         for seed in seeds:

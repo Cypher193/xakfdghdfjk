@@ -263,6 +263,19 @@ def readout(family, t, xs, zs, t_start):
         (T1, h1), (T2, h2) = flights
         out.update(t_ratio=T1 / T2, h_ratio=h1 / h2)
         return out
+    if family == "collide":                                  # the struck ball, late in the clip: contact is at 1.3-2 s
+        tw, x = t[w], xs[1][w]
+        sel = (tw >= tw[0] + 0.6 * (tw[-1] - tw[0])) & ~np.isnan(x)
+        out["v"] = abs(np.polyfit(tw[sel], x[sel], 1)[0])
+        return out
+    if family == "ramp":                                     # quadratic up to the fastest point, the foot of the ramp
+        ok = ~np.isnan(xs[0][w])
+        tw, x = t[w][ok], xs[0][w][ok]
+        v = np.convolve(np.gradient(x, tw), np.ones(5) / 5, mode="same")
+        foot = int(np.argmax(np.abs(v[2:-2]))) + 2
+        if foot >= 6:
+            out["a_slope"] = abs(2 * np.polyfit(tw[:foot], x[:foot], 2)[0])
+        return out
     raise ValueError(family)
 
 

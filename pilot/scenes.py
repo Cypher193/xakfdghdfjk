@@ -79,11 +79,37 @@ def eval_segments(segs, t):
     return z
 
 
+def ramp_foot(scene, obj):
+    """Slide of a ramp object -> (acceleration along the slope, time at the foot, speed at the foot)."""
+    th, g = math.radians(obj["theta_deg"]), scene["gravity"][0][1]
+    a = g * (math.sin(th) - obj["mu"] * math.cos(th))
+    t_foot = math.sqrt(2 * obj["ramp_len"] / a)
+    return a, t_foot, a * t_foot
+
+
+def ramp_track(scene, obj, t):
+    """Box centre: slides from rest along the ramp, then brakes on the floor with the same friction. The kink at the foot
+    removes the normal component, so the box keeps only its horizontal speed."""
+    th, g = math.radians(obj["theta_deg"]), scene["gravity"][0][1]
+    a, t_foot, v_foot = ramp_foot(scene, obj)
+    v_floor = v_foot * math.cos(th)
+    t = np.asarray(t, float)
+    s = 0.5 * a * np.minimum(t, t_foot) ** 2
+    tau = np.clip(t - t_foot, 0.0, v_floor / (obj["mu"] * g))
+    x = obj["x0"] + obj["dir"] * (s * math.cos(th) + v_floor * tau - 0.5 * obj["mu"] * g * tau ** 2)
+    return x, obj["z0"] - s * math.sin(th)
+
+
 def object_track(scene, obj, t):
     """Centre (x, z) in metres at times t."""
+    if obj["motion"] == "ramp":
+        return ramp_track(scene, obj, t)
     floor = scene["floor_z"] + obj["size_m"] / 2
     x = obj["x0"] + obj["vx"] * np.asarray(t, float)
     if obj["motion"] == "floor":
+        if "t_c" in obj:                       # collision: new constant velocity from t_c on
+            x = np.where(np.asarray(t, float) < obj["t_c"], x,
+                         obj["x0"] + obj["vx"] * obj["t_c"] + obj["v_after"] * (np.asarray(t, float) - obj["t_c"]))
         return x, np.full_like(x, floor)
     segs, _ = vertical_segments(obj["z0"], obj["vz0"], scene["gravity"], obj["e"], floor, scene["duration_s"])
     return x, eval_segments(segs, t)
@@ -145,6 +171,39 @@ def make_ratio(rng, sid, size_m=(0.25, 0.40), vmax=9.2):
                 gt=dict(t_ratio=float(v1 / v2), h_ratio=float((v1 / v2) ** 2)))
 
 
+def make_collide(rng, sid):
+    """L3, momentum + restitution: a rolling ball hits a resting one after the longest input window. Same density, so
+    mass goes with size^3. gt v = the struck ball's speed, the number the input window does not show."""
+    d = float(rng.choice([-1, 1]))
+    a, b = _ball(rng, "floor"), _ball(rng, "floor")
+    b["color"] = next(c for c in rng.permutation(COLORS).tolist() if c != a["color"])
+    sa, sb = round(float(rng.uniform(0.25, 0.40)), 3), round(float(rng.uniform(0.25, 0.40)), 3)
+    v, e, t_c = float(rng.uniform(0.5, 0.9)), round(float(rng.uniform(0.6, 0.9)), 3), float(rng.uniform(1.3, 2.0))
+    ma, mb = sa ** 3, sb ** 3
+    va, vb = d * v * (ma - e * mb) / (ma + mb), d * v * (1 + e) * ma / (ma + mb)
+    x0 = -d * 1.9
+    a.update(size_m=sa, x0=x0, vx=d * v, z0=None, vz0=0.0, e=None, t_c=t_c, v_after=va)
+    b.update(size_m=sb, x0=x0 + d * (v * t_c + (sa + sb) / 2), vx=0.0, z0=None, vz0=0.0, e=None, t_c=t_c, v_after=vb)
+    return dict(id=sid, family="collide", gravity=[(0.0, G)], objects=[a, b], gt=dict(v=abs(vb), v0=v, e=e, t_c=t_c))
+
+
+def make_ramp(rng, sid):
+    """L3, gravity + sliding friction: a box released from rest on a rough ramp, past the input window on the slope.
+    gt a_slope = horizontal acceleration on the ramp, what the tracker reads from x(t)."""
+    d = float(rng.choice([-1, 1]))
+    size = round(float(rng.uniform(0.30, 0.40)), 3)
+    theta, mu, length = float(rng.uniform(20, 28)), float(rng.uniform(0.2, 0.35)), float(rng.uniform(1.8, 2.6))
+    o = dict(shape="cube", motion="ramp", color=str(rng.choice(COLORS)), size_m=size, x0=-d * 2.0, vx=0.0,
+             z0=-1.0 + size / 2 + length * math.sin(math.radians(theta)), vz0=0.0, e=None, theta_deg=theta, mu=mu,
+             ramp_len=length, dir=d)
+    sc = dict(id=sid, family="ramp", gravity=[(0.0, G)], objects=[o])
+    assert math.sin(math.radians(theta)) > mu * math.cos(math.radians(theta)) + 0.08, "box barely moves"
+    a, t_foot, _ = ramp_foot(sc, o)
+    assert t_foot >= 1.6, "too short on the slope"
+    sc["gt"] = dict(a_slope=a * math.cos(math.radians(theta)), mu=mu, theta_deg=theta, t_foot=t_foot)
+    return sc
+
+
 # ---------------------------------------------------------------- text
 def _bin(x, edges, words):
     return words[int(np.searchsorted(edges, x))]
@@ -155,6 +214,8 @@ SIZE = lambda s: _bin(s, [0.15, 0.22, 0.30], ["the size of a tennis ball", "the 
 SPEED = lambda v: _bin(v, [0.3, 0.45, 0.55], ["very slowly", "slowly", "at a gentle walking pace", "at a brisk walking pace"])
 HEIGHT = lambda h: _bin(h, [0.9, 1.2, 1.45], ["thigh height", "waist height", "chest height", "shoulder height"])
 BOUNCY = lambda e: _bin(e, [0.75, 0.85], ["moderately bouncy", "bouncy", "very bouncy"])
+STEEP = lambda th: _bin(th, [22.5, 25.5], ["gentle", "moderate", "steep"])
+ROUGH = lambda mu: _bin(mu, [0.25, 0.30], ["slightly rough", "rough", "very rough"])
 VERB = {"sphere": "rolls", "cube": "slides", "cylinder": "slides"}
 NOUN = {"sphere": "ball", "cube": "box", "cylinder": "can"}   # upright cylinder, height = diameter
 
@@ -166,13 +227,26 @@ def caption(scene):
         return f"A {o['color']} {NOUN[o['shape']]} {VERB[o['shape']]} across a floor. Static camera."
     if scene["family"] == "ratio":
         return f"A {o['color']} ball and a {scene['objects'][1]['color']} ball are thrown straight up from the floor. Static camera."
+    if scene["family"] == "collide":
+        return f"A {o['color']} ball rolls across a floor towards a {scene['objects'][1]['color']} ball. Static camera."
+    if scene["family"] == "ramp":
+        return f"A {o['color']} box slides down a ramp onto a floor. Static camera."
     return f"A {o['color']} ball bounces on a floor. Static camera."
 
 
 def describe(scene):
     """B2-nl: the same information in plain words, without numbers."""
     o = scene["objects"][0]
+    if scene["family"] == "ramp":
+        return (f"A {o['color']} box, {SIZE(o['size_m'])}, is released from rest at the top of a {STEEP(o['theta_deg'])}, "
+                f"{ROUGH(o['mu'])} ramp and slides down to the {'right' if o['dir'] > 0 else 'left'}, speeding up. "
+                "At the bottom it slides on across the floor and friction brings it to a stop. Seen side-on from a fixed camera.")
     side = "right" if o["vx"] > 0 else "left"
+    if scene["family"] == "collide":
+        b = scene["objects"][1]
+        return (f"A {o['color']} ball, {SIZE(o['size_m'])}, rolls {SPEED(abs(o['vx']))} to the {side} across a smooth floor "
+                f"and hits a {b['color']} ball, {SIZE(b['size_m'])}, resting in its path. The balls are "
+                f"{BOUNCY(scene['gt']['e'])}, and the {b['color']} ball rolls away after the hit. Seen side-on from a fixed camera.")
     if scene["family"] == "cv":
         return (f"A {o['color']} {NOUN[o['shape']]}, {SIZE(o['size_m'])}, {VERB[o['shape']]} {SPEED(abs(o['vx']))} "
                 f"to the {side} across a smooth floor, keeping the same speed the whole time. "
@@ -188,6 +262,20 @@ def describe(scene):
     return (f"A {BOUNCY(o['e'])} {o['color']} ball, {SIZE(o['size_m'])}, is released from about {HEIGHT(o['h'])}{up} "
             f"while drifting {SPEED(abs(o['vx']))} to the {side}. It falls under normal Earth gravity "
             "and bounces on a hard floor, each bounce lower than the last. Seen side-on from a fixed camera.")
+
+
+def describe_num(scene):
+    """B2-num: the same scene in numbers (metres, seconds). Cv and bounce only: the 60 B2-num scenes are kmain."""
+    o = scene["objects"][0]
+    side = "right" if o["vx"] > 0 else "left"
+    if scene["family"] == "cv":
+        return (f"A {o['color']} {NOUN[o['shape']]}, {o['size_m']:.2f} m wide, {VERB[o['shape']]} to the {side} across a "
+                f"smooth floor at a constant {abs(o['vx']):.2f} m/s: x = {o['x0']:.2f} m at t = 0 s, x = {o['x0'] + o['vx']:.2f} m "
+                "at t = 1 s. Seen side-on from a fixed camera.")
+    return (f"A {o['color']} ball, {o['size_m']:.2f} m wide, is released {o['h']:.2f} m above its resting height with vertical "
+            f"speed {o['vz0']:+.2f} m/s while drifting to the {side} at {abs(o['vx']):.2f} m/s. It falls with gravity "
+            f"{scene['gravity'][0][1]:.2f} m/s^2 and bounces on a hard floor with restitution {o['e']:.2f}. "
+            "Seen side-on from a fixed camera.")
 
 
 # ---------------------------------------------------------------- ground-truth export
@@ -207,6 +295,8 @@ def finalise(scene, cam, cfg, rng):
     scene["tracks"] = tracks
     scene["caption"] = caption(scene)
     scene["b2nl"] = describe(scene)
+    if scene["family"] in ("cv", "bounce"):
+        scene["b2num"] = describe_num(scene)
     return scene
 
 
@@ -219,7 +309,7 @@ def _draw(make, rng, sid, cam, cfg):
             pass
 
 
-def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35):
+def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n_grav_all=30, n_ratio2=40, n_l3=15):
     # one random stream per family, so changing one family never reshuffles the others
     streams = {f: np.random.default_rng([seed, k]) for k, f in enumerate(("kmain", "kgrav", "kratio", "kcont"))}
     cam = camera(cfg)
@@ -232,9 +322,10 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35):
     for fam, make in (("cv", make_cv), ("ca", make_bounce)):
         for i in range(n_cv if fam == "cv" else n_bounce, (n_cv if fam == "cv" else n_bounce) + n_more):
             out["kmain"].append(_draw(make, rng, f"kmain_{fam}_{i:02d}", cam, cfg))
-    rng = streams["kgrav"]
     out["kgrav"] = []
-    for i in range(n_grav):
+    for i in range(n_grav_all):
+        # 2026-11-01: 20 more bases (ids 10..29) from their own stream, so the pilot's 30 scenes stay identical
+        rng = streams["kgrav"] if i < n_grav else np.random.default_rng([seed, 6, i])
         base = make_bounce(rng, "tmp")["objects"][0]
         # released from rest, high and bouncy: at 2 g the flights still span enough frames at 16 fps
         base.update(vz0=0.0, h=float(rng.uniform(1.2, 1.6)), e=round(float(rng.uniform(0.75, 0.90)), 3))
@@ -250,7 +341,11 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35):
     # (5/30 measurable). 0.7-0.9 m balls are 71-92 px; vmax 8.5 m/s keeps the whole ball in frame at the apex.
     rng = np.random.default_rng([seed, 5])
     big = lambda r, sid: make_ratio(r, sid, size_m=(0.7, 0.9), vmax=8.5)
-    out["kratio2"] = [_draw(big, rng, f"kratio2_{i:02d}", cam_ratio, cfg) for i in range(n_ratio)]
+    out["kratio2"] = [_draw(big, rng, f"kratio2_{i:02d}", cam_ratio, cfg) for i in range(n_ratio2)]   # first 10: 2026-10-26
+    # B-L3 (2026-11-01): two laws combined, 15 collisions + 15 ramps with friction, own stream
+    rng = np.random.default_rng([seed, 7])
+    out["kl3"] = [_draw(make_collide, rng, f"kl3_co_{i:02d}", cam, cfg) for i in range(n_l3)]
+    out["kl3"] += [_draw(make_ramp, rng, f"kl3_ra_{i:02d}", cam, cfg) for i in range(n_l3)]
     # C2-g: first part at Earth gravity, then switch at the end of the Cosmos input window.
     # Own bases, lower and less bouncy: after a switch to 0.25 g the bounce height is ~ e^2 (h + 1.44 m).
     t_switch = cfg["models"]["cosmos2b"]["cond_frames"] / cfg["models"]["cosmos2b"]["fps"]

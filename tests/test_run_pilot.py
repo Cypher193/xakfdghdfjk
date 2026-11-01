@@ -14,6 +14,7 @@ from run_pilot import LTX_JOBS, job_repos
 
 kmain = sorted(p.stem for p in Path("data/scenes/kmain").glob("*.json"))
 kgrav = sorted(p.stem for p in Path("data/scenes/kgrav").glob("*.json"))
+kgrav = kgrav[:30]                                  # the 20 bases added on 2026-11-01 are round 3 only
 assert len(kmain) == 100 and len(kgrav) == 30, (len(kmain), len(kgrav))
 for model in ("cosmos2b", "vace13"):
     b1, b5 = [], []

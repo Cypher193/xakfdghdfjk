@@ -179,9 +179,9 @@ def kmain_ids(k, n_shards, n):
     return [f"kmain_{'cv' if p % 2 == 0 else 'ca'}_{p // 2:02d}" for p in range(k - 1, n, n_shards)]
 
 
-def kgrav_ids(k, n_shards):
+def kgrav_ids(k, n_shards, bases=10):
     """Scene ids of shard k of kgrav (pilot.shard on its sorted file names: kgrav_00_g0.5, kgrav_00_g1.0, ...)."""
-    return [f"kgrav_{i:02d}_g{g}" for i in range(10) for g in (0.5, 1.0, 2.0)][k - 1::n_shards]
+    return [f"kgrav_{i:02d}_g{g}" for i in range(bases) for g in (0.5, 1.0, 2.0)][k - 1::n_shards]
 
 
 def _shard_jobs():
@@ -273,8 +273,38 @@ def _round2_jobs(model, n, b5_seeds):
     return jobs
 
 
+# Round 3 (2026-11-01, docs/phase3.md "Round 3"): the rest of the B runs on all three small models. One model per pod, every
+# experiment spread over its pods. b5: the 30 old + 60 new kgrav scenes to 5 seeds, finished clips are skipped. per_s: 3090.
+S3, S5 = [0, 1, 2], [0, 1, 2, 3, 4]
+ROUND3 = {"cosmos2b": (20, 650, [("b2nl", None, [1, 2]), ("b2num", 60, S3), ("b3", None, S3), ("b5", None, S5),
+                                 ("bratio2", None, S3), ("bl3", None, S3), ("bl3nl", None, S3)]),
+          "vace13": (11, 900, [("b2nl", None, [1, 2]), ("b2num", 60, S3), ("bratio2", None, S3)]),
+          "ltx2b": (2, 80, [("b2num", 60, S3), ("b5", None, S5), ("bratio2", None, S3), ("bl3", None, S3), ("bl3nl", None, S3)])}
+KL3_IDS = [f"kl3_{f}_{i:02d}" for f in ("co", "ra") for i in range(15)]
+RATIO2_IDS = [f"kratio2_{i:02d}" for i in range(40)]
+
+
+def round3_ids(exp, k, n, limit):
+    if exp in ("b2nl", "b2num", "b3"):
+        return kmain_ids(k, n, limit or 100)
+    return kgrav_ids(k, n, 30) if exp == "b5" else RATIO2_IDS[k - 1::n] if exp == "bratio2" else KL3_IDS[k - 1::n]
+
+
+def _round3_jobs(model, n, per_s, blocks):
+    jobs = {}
+    for k in range(1, n + 1):
+        sh, name = f"{k}/{n}", f"{model}g{k}of{n}"
+        steps = [gen(model, e, limit, seeds, shard=sh, ids=round3_ids(e, k, n, limit)) | dict(per_s=per_s)
+                 for e, limit, seeds in blocks]
+        steps.append(cmd(f"score:{name}", ["-m", "pilot.score", "--models", model, "--table",
+                                           f"results/show_ltx_{name}.csv"], 10 * sum(s["clips"] for s in steps)))
+        jobs[name] = steps
+    return jobs
+
+
 MODEL_JOBS = {j: s for m, n in MODEL_SHARDS.items() for j, s in _model_jobs(m, n).items()}   # sync.py: table-driven
 MODEL_JOBS |= {j: s for m, (n, b5) in ROUND2.items() for j, s in _round2_jobs(m, n, b5).items()}
+MODEL_JOBS |= {j: s for m, (n, per_s, blocks) in ROUND3.items() for j, s in _round3_jobs(m, n, per_s, blocks).items()}
 # C7 steering on Cosmos-2B (G6 had only 6 pilot clips): alpha 0 is the B1 seed-0 clip
 STEER_JOBS = {"cosmos2bsteer": [
     dict(name="steer:cosmos2b", kind="gen", model="cosmos2b", clips=40, out=["runs/steer/cosmos2b"],
@@ -302,7 +332,33 @@ RESCORE_JOBS["rescore2"] = [cmd("score:rescore2", ["-m", "pilot.score", "--track
                                                    "vace13", "--table", "results/show_v2_ltx_rescore2.csv",
                                                    "--faults", "results/faults_ltx_rescore2.csv"], 550 * 15)]
 LTX_RUNS["rescore"] = LTX_RUNS["rescore2"] = []                                    # pull / push: sync.py's rescore branch
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS
+# Round 3 input windows on 3 pods; finished renders are pulled and skipped, so only the new scenes render. Pod 1 also
+# renders 6 full kl3 clips and runs the tracker on them: the collide and ramp readouts against ground truth (G1a).
+RENDER3_EXPS, RENDER3_PODS = {"b5": "kgrav", "bratio2": "kratio2", "bl3": "kl3"}, 3
+BPY = "${BPY_PYTHON:-/opt/bpy/bin/python}"
+
+
+def _render3_jobs():
+    jobs = {}
+    for k in range(1, RENDER3_PODS + 1):
+        sh, name = f"{k}/{RENDER3_PODS}", f"render3s{k}of{RENDER3_PODS}"
+        steps = [dict(name=f"render:{s}", kind="cmd", est_s=90 * {"kgrav": 60, "kratio2": 30, "kl3": 30}[s] // RENDER3_PODS, cmd=[
+            "bash", "-c", f"python -m pilot.shard --exp {e} --shard {sh} --write-shard data/shard_{s} && "
+                          f"{BPY} -m pilot.render data/shard_{s} --out data/renders/{s} --gpu --fps 48 --seconds 1.125 --suffix _input"])
+                 for e, s in RENDER3_EXPS.items()]
+        if k == 1:
+            steps += [dict(name="render:kl3full", kind="cmd", est_s=6 * 180, cmd=[
+                          "bash", "-c", "python -m pilot.shard --exp bl3 --shard 1/5 --write-shard data/shard_kl3full && "
+                                        f"{BPY} -m pilot.render data/shard_kl3full --out data/renders/kl3full --gpu"]),
+                      cmd("p0:kl3", ["-m", "pilot.track", "validate", "data/renders/kl3full", "--scenes", "data/scenes/kl3",
+                                     "--tracker", "sam2", "--out", f"results/p0_kl3_ltx_{name}.csv"], 6 * 20)]
+        jobs[name] = steps
+    return jobs
+
+
+RENDER3_JOBS = _render3_jobs()
+LTX_RUNS |= dict.fromkeys(RENDER3_JOBS, [])                                         # pull / push: sync.py's render3 branch
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

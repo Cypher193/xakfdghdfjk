@@ -62,7 +62,7 @@ def score_rendered(d, meta, spec, tracker="sam2"):
     if r.get("measurable"):
         if "v" in r or "vx" in r:
             r["hspeed"] = r.get("vx", r.get("v"))
-        for k in ("v", "vx", "hspeed", "g", "e", "t_ratio", "h_ratio"):
+        for k in ("v", "vx", "hspeed", "g", "e", "t_ratio", "h_ratio", "a_slope"):
             if k in r and gt.get(k) is not None:
                 r[f"{k}_gt"] = gt[k]
                 r[f"{k}_sym_mra"] = float(metrics.sym_mra(r[k], gt[k]))

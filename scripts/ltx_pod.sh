@@ -11,6 +11,7 @@ JOB=${1:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe|probe2|sKof7 BUDGET_H}
 BUDGET=${2:?usage: ltx_pod.sh gen1|gen2|gen3|gen4|probe|probe2|sKof7 BUDGET_H}
 source scripts/pod_env.sh
 export LTX_JOB=$JOB
+[[ $JOB =~ g[0-9]+of[0-9]+$ ]] && export SYNC_EVERY=1800     # round 3: 33 pods on one HF repo, stay under its commit rate
 S=_ltx_$JOB
 mkdir -p data/logs
 utc_in() { python -c "import datetime as d; print((d.datetime.now(d.timezone.utc) + d.timedelta(hours=$1)).strftime('%Y-%m-%dT%H:%MZ'))"; }
