@@ -284,7 +284,8 @@ def gt_boxes(spec, frame=0):
     """Ground-truth boxes on one frame from the analytic tracks."""
     boxes = []
     for o, tr in zip(spec["objects"], spec["tracks"]):
-        u, v, r = tr["u_px"][frame], tr["v_px"][frame], tr["radius_px"]
+        th = math.radians(o.get("theta_deg", 0.0))            # the whole tilted box, or SAM2 masks only part of it
+        u, v, r = tr["u_px"][frame], tr["v_px"][frame], tr["radius_px"] * (math.cos(th) + math.sin(th))
         boxes.append([u - r, v - r, u + r, v + r])
     return boxes
 

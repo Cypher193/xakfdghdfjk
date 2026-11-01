@@ -34,6 +34,7 @@ for spec_file in sorted(Path("data/scenes/kl3").glob("kl3_ra_*.json")):
         panels.append(cv2.resize(f, (284, 160)))
     sheet.append(np.hstack(panels))
 df = pd.DataFrame(rows)
+Path("results").mkdir(exist_ok=True)
 df.to_csv("results/kl3diag_ltx_kl3diag.csv", index=False)
 cv2.imwrite("results/kl3diag_ltx_kl3diag.png", cv2.cvtColor(np.vstack(sheet), cv2.COLOR_RGB2BGR))
 print(f"measurable {df.measurable.mean():.2f}, mean sym MRA {df.a_mra.mean():.3f}")
