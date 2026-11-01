@@ -357,6 +357,12 @@ def _render3_jobs():
 
 
 RENDER3_JOBS = _render3_jobs()
+# ramp readout check: all 15 ramps rendered in full, SAM2 on each (scripts/kl3_diag.py)
+RENDER3_JOBS["kl3diag"] = [
+    dict(name="render:ramps", kind="cmd", est_s=15 * 60, cmd=[
+        "bash", "-c", "mkdir -p data/shard_ramps && cp data/scenes/kl3/kl3_ra_*.json data/shard_ramps/ && "
+                      f"{BPY} -m pilot.render data/shard_ramps --out data/renders/kl3full --gpu"]),
+    cmd("diag:kl3", ["scripts/kl3_diag.py"], 15 * 60)]
 LTX_RUNS |= dict.fromkeys(RENDER3_JOBS, [])                                         # pull / push: sync.py's render3 branch
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))

@@ -5,6 +5,7 @@
 """
 import argparse
 import json
+import math
 from pathlib import Path
 
 import cv2
@@ -307,7 +308,8 @@ def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker
     i0 = int(np.searchsorted(t, t_start))
     xs, zs, ok = [], [], True
     for o, m, (c, area) in zip(spec["objects"], masks, object_tracks(frames, masks, tracker)):
-        s = px_per_m(m[:cond_frames], o["size_m"])
+        th = math.radians(o.get("theta_deg", 0.0))            # a box tilted on a ramp spans (cos + sin) x its size on both axes
+        s = px_per_m(m[:cond_frames], o["size_m"] * (math.cos(th) + math.sin(th)))
         xs.append((c[:, 0] - cam["cx"]) / s)
         zs.append(-(c[:, 1] - cam["cy"]) / s)
         ok &= measurable(area, i0)

@@ -73,6 +73,9 @@ elif os.environ.get("LTX_JOB"):
         sets = RENDER3_EXPS.values()
         PATTERNS = ["data/scenes/**", "assets_cache/**"] + mine + [f"data/renders/{s}/*_input*" for s in sets]
         PUSH_PATTERNS = mine + [f"data/renders/{s}/*_input*" for s in sets] + ["data/renders/kl3full/*"]
+    if j == "kl3diag":                    # full ramp renders in (6 exist) and out, its own results
+        PATTERNS = ["data/scenes/**", "assets_cache/**", "data/renders/kl3full/*"] + mine
+        PUSH_PATTERNS = mine + ["data/renders/kl3full/*"]
     if j == "bratio2":                    # renders its own inputs: scenes + Poly Haven cache in; renders + runs out
         PATTERNS = ["data/scenes/kratio2/**", "assets_cache/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
         PUSH_PATTERNS = ["data/renders/kratio2/**"] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
