@@ -332,6 +332,20 @@ RESCORE_JOBS["rescore2"] = [cmd("score:rescore2", ["-m", "pilot.score", "--track
                                                    "vace13", "--table", "results/show_v2_ltx_rescore2.csv",
                                                    "--faults", "results/faults_ltx_rescore2.csv"], 550 * 15)]
 LTX_RUNS["rescore"] = LTX_RUNS["rescore2"] = []                                    # pull / push: sync.py's rescore branch
+# Round 3 clips, plus steer (G6) and the one LTX B1 clip rescore missed: one pod per model, clips that lack score_v2.json
+RESCORE3_RUNS = {m: [f"runs/{e}/{m}" for e in exps] for m, exps in (
+    ("ltx2b", ("b1", "b2nl", "b2num", "b3", "b5", "bl3", "bl3nl", "bratio2", "steer")),
+    ("cosmos2b", ("b2nl", "b2num", "b3", "b5", "bl3", "bl3nl", "bratio2", "steer")),
+    ("vace13", ("b2nl", "b2num", "bratio2")))}
+for _m, _n in (("ltx2b", 1471), ("cosmos2b", 1480), ("vace13", 600)):
+    _j = f"{_m}rescore3"
+    RESCORE_JOBS[_j] = [cmd(f"score:{_j}", ["-m", "pilot.score", "--tracker", "cotracker3", "--models", _m, "--table",
+                                            f"results/show_v2_ltx_{_j}.csv", "--faults", f"results/faults_ltx_{_j}.csv"],
+                            _n * 15)]
+    LTX_RUNS[_j] = []
+RESCORE_JOBS["vace13rescore3"].insert(0, cmd("p0:kl3", ["-m", "pilot.track", "validate", "data/renders/kl3full", "--scenes", "data/scenes/kl3",
+                                                        "--tracker", "cotracker3", "--out", "results/p0_kl3_cotracker3_ltx_vace13rescore3.csv"],
+                                             21 * 20))          # kl3 was only validated with SAM2
 # Round 3 input windows on 3 pods; finished renders are pulled and skipped, so only the new scenes render. Pod 1 also
 # renders 6 full kl3 clips and runs the tracker on them: the collide and ramp readouts against ground truth (G1a).
 RENDER3_EXPS, RENDER3_PODS = {"b5": "kgrav", "bratio2": "kratio2", "bl3": "kl3"}, 3

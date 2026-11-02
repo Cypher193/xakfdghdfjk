@@ -104,5 +104,16 @@ assert match("assets_cache/x.json", s.PATTERNS) and match("data/renders/kgrav/kg
 assert match("data/renders/kl3/kl3_co_00_input.mp4", s.PUSH_PATTERNS) and match("data/renders/kl3/kl3_co_00_input.assets.json", s.PUSH_PATTERNS)
 assert match("results/p0_kl3_ltx_render3s1of3.csv", s.PUSH_PATTERNS) and not match("data/renders/kmain/x_input.mp4", s.PATTERNS)
 assert match("data/renders/kl3full/kl3_co_00.mp4", s.PUSH_PATTERNS)
+assert label("cosmos2brescore3") == "kvs-cosmos2brescore3-1of1"
+for m, n_steps in (("ltx2b", 1), ("cosmos2b", 1), ("vace13", 2)):
+    j, s = f"{m}rescore3", sync_for(f"{m}rescore3")
+    assert len(LTX_JOBS[j]) == n_steps and job_repos(j) == [("facebook/sam2.1-hiera-large", None)]
+    written = [a for t in LTX_JOBS[j] for a in t["cmd"] if a.startswith("results/")]
+    assert len(written) == n_steps + 1 and all(match(f, s.PUSH_PATTERNS) for f in written), written
+    assert match(f"runs/bratio2/{m}/kratio2_00_s0/video.mp4", s.PATTERNS) and match(f"runs/bratio2/{m}/kratio2_00_s0/score_v2.json", s.PUSH_PATTERNS)
+    assert not match(f"runs/bratio2/{m}/kratio2_00_s0/video.mp4", s.PUSH_PATTERNS), "scores only: finalize must not re-verify videos"
+    assert not match("runs/c9/ltx2b/x/video.mp4", s.PATTERNS) and match("data/scenes/kl3/kl3_co_00.json", s.PATTERNS)
+assert match("data/renders/kl3full/kl3_ra_00.mp4", s.PATTERNS)      # s is the VACE pod here
+assert not match("data/renders/kl3full/kl3_ra_00.mp4", sync_for("ltx2brescore3").PATTERNS)
 del os.environ["LTX_JOB"], os.environ["HF_DATA_REPO"]
 print("round 3 checks passed:", clips)
