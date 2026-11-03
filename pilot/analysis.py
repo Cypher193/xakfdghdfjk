@@ -60,7 +60,7 @@ def clips(exps, target, model=None):
             if spec is None:
                 continue
             y = probe.target_value(json.loads(spec.read_text(encoding="utf-8"))["gt"], target)
-            if y is not None and y > 0:
+            if y is not None and y > 0 and probe.finite_acts(d) is not None:
                 out.append(dict(exp=exp, dir=d.parent.name, meta=meta, y=y, scene=meta["scene"].split("_g")[0]))
     return out
 

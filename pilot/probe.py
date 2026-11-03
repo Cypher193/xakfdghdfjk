@@ -29,6 +29,16 @@ def target_value(gt, target):
     return gt.get("vx", gt.get("v")) if target == "hspeed" else gt.get(target)
 
 
+def finite_acts(f):
+    """acts.npz as float32 arrays, or None if any is non-finite (18 Cosmos B5 clips hold NaN in every block's capture)."""
+    z = np.load(f)
+    acts = {k: z[k].astype(np.float32) for k in z.files if k != "steps"}
+    if all(np.isfinite(v).all() for v in acts.values()):
+        return acts
+    print(f"skipped {f}: non-finite activations", flush=True)
+    return None
+
+
 def load(runs, model, exps, target, scene_root="data/scenes"):
     """-> features dict {name: (n, D) or (n_blocks, n_steps, n, D)}, y (n,), groups (n,)."""
     feats, ys, groups = {}, [], []
@@ -41,10 +51,11 @@ def load(runs, model, exps, target, scene_root="data/scenes"):
             y = target_value(json.loads(spec_file.read_text(encoding="utf-8"))["gt"], target)
             if y is None or y <= 0:
                 continue
-            z = np.load(d)
-            for k in z.files:
-                if k != "steps":
-                    feats.setdefault(k, []).append(z[k].astype(np.float32))
+            z = finite_acts(d)
+            if z is None:
+                continue
+            for k, v in z.items():
+                feats.setdefault(k, []).append(v)
             ys.append(y)
             groups.append(meta["scene"].split("_g")[0])     # gravity variants of one scene form one group
     n = len(ys)
