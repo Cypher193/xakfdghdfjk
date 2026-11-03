@@ -144,7 +144,7 @@ LTX_PULL_EXTRA = ["runs/*/ltx2b", "runs/p7/ltx2b_*"]         # the probe job nee
 
 def _probe_steps(model="ltx2b"):
     return [cmd(f"probe:{t}:{'+'.join(e)}:{pool}",
-                ["-m", "pilot.probe", "--model", model, "--exps", *e, "--target", t, "--pool", pool], 300)
+                ["-m", "pilot.probe", "--model", model, "--exps", *e, "--target", t, "--pool", pool], 300 * len(e) ** 2)
             for e, t in ((["b1"], "hspeed"), (["b1", "b5"], "g"), (["b1", "b5"], "e")) for pool in ("obj", "all")]
 
 
