@@ -22,7 +22,8 @@ from vast_launch import worker_label
 cfg = yaml.safe_load(open("configs/pilot.yaml"))
 built = scenes.build(cfg)
 ids = {k: [s["id"] for s in v] for k, v in built.items()}
-assert {k: len(v) for k, v in built.items()} == dict(kmain=100, kgrav=90, kratio=10, kratio2=40, kl3=30, kcont=70)
+assert {k: len(v) for k, v in built.items()} == dict(kmain=100, kgrav=90, kratio=10, kratio2=40, kl3=30, kcont=70, kvelc=500,
+                                                     kvell=500)
 
 # collisions: momentum holds, restitution holds, contact after the longest input window, balls touch at contact
 for s in built["kl3"][:15]:
@@ -121,6 +122,25 @@ s = sync_for("rederr")
 assert match("runs/b2nl/vace13/kmain_ca_06_s2/video.mp4", s.PATTERNS) and not match("runs/b2nl/vace13/kmain_ca_99_s2/video.mp4", s.PATTERNS)
 assert match("runs/b2nl/vace13/kmain_ca_06_s2/score_v2.json", s.PUSH_PATTERNS) and match("results/show_v2_ltx_rederr.csv", s.PUSH_PATTERNS)
 assert not match("runs/b2nl/vace13/kmain_ca_06_s2/video.mp4", s.PUSH_PATTERNS) and job_repos("rederr") == [("facebook/sam2.1-hiera-large", None)]
+s = sync_for("stats2v2")
+assert match("runs/b5/ltx2b/kgrav_00_g0.5_s3/score_v2.json", s.PATTERNS) and match("results/c3_ltx2b_v2_nested_clips.csv", s.PUSH_PATTERNS)
+assert not match("results/c3_ltx2b_nested.csv", s.PUSH_PATTERNS) and all("--v2" in t["cmd"] for t in LTX_JOBS["stats2v2"])
+# C2: each pod renders and scores its own bases, every base exactly once per scene set; Cosmos pods also take C2-g
+from pilot.likelihood import bases
+from run_pilot import C2_BASES
+for s, jobs in (("kvelc", [f"c2c{k}of4" for k in range(1, 5)]), ("kvell", ["c2l1of2", "c2l2of2"]), ("kcont", [f"c2c{k}of4" for k in range(1, 5)])):
+    got = [b for j in jobs for b in C2_BASES[j][s]]
+    assert sorted(got) == sorted(bases(f"data/scenes/{s}")) and len(set(got)) == len(got), s
+    for k, j in enumerate(jobs, 1):
+        assert C2_BASES[j][s] == list(bases(f"data/scenes/{s}", f"{k}/{len(jobs)}")), (s, j)
+assert job_repos("c2c1of4")[0] == ("nvidia/Cosmos-Predict2.5-2B", "diffusers/base/post-trained")
+assert job_repos("c2l2of2")[0] == ("Lightricks/LTX-Video-0.9.5", None)
+s = sync_for("c2c2of4")
+assert match("data/renders/kvelc/kvelc_ca_01_x0.5.mp4", s.PUSH_PATTERNS) and not match("data/renders/kvelc/kvelc_ca_00_x0.5.mp4", s.PATTERNS)
+assert match("data/renders/kcont/kcont_01_x4.0.mp4", s.PATTERNS) and not match("data/renders/kcont/kcont_01_x4.0.mp4", s.PUSH_PATTERNS)
+assert match("results/c2_kvelc_cosmos2b_ltx_c2c2of4_summary.csv", s.PUSH_PATTERNS) and match("assets_cache/x.json", s.PATTERNS)
+assert [t["name"] for t in LTX_JOBS["c2c2of4"]] == ["render:kvelc", "c2g:cosmos2b", "c2:cosmos2b"]
+assert [t["name"] for t in LTX_JOBS["c2l1of2"]] == ["render:kvell", "c2:ltx2b"]
 from pilot.score import scored
 p = Path("tests/_scored_tmp.json")
 for body, want in (({"measurable": False, "reason": "error: ValueError: x"}, False), ({"measurable": False, "reason": "lost"}, True)):

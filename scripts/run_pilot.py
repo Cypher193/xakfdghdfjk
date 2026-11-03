@@ -78,7 +78,7 @@ PLAN = [  # priority order: the gates that matter most come first (approved plan
          cmd=[PY, "-m", "pilot.invert", "--model", "wan22_5b"]),
     # reordered 2026-10-18 (user): timing and P8 before B2-nl / B-ratio, which are trimmed to fit the budget
     cmd("p11:timing", ["-c", "import subprocess,sys; sys.exit(subprocess.call(['bash','scripts/time_extra.sh']))"], 1800),
-    cmd("p8:cosmos2b", ["-m", "pilot.likelihood", "--scenes", "5"], 900),
+    cmd("p8:cosmos2b", ["-m", "pilot.likelihood", "--set", "kcont", "--shard", "1/2", "--out", "results/p8_cosmos2b.csv"], 900),
     gen("vace13", "b2nl", 10, [0]), gen("cosmos2b", "b2nl", 5, [0]), gen("ltx2b", "b2nl", 30, [0]),
     gen("vace13", "bratio", 3, [0]), gen("cosmos2b", "bratio", 3, [0]), gen("ltx2b", "bratio", 10, [0]),
 ]
@@ -384,7 +384,46 @@ RENDER3_JOBS["kl3diag"] = [
                       f"{BPY} -m pilot.render data/shard_ramps --out data/renders/kl3full --gpu"]),
     cmd("diag:kl3", ["scripts/kl3_diag.py"], 15 * 60)]
 LTX_RUNS |= dict.fromkeys(RENDER3_JOBS, [])                                         # pull / push: sync.py's render3 branch
-LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS
+# Nested gap with the CoTracker3 readout (score_v2.json), on the round 3 B5 sets (450 clips for LTX and Cosmos)
+STATS2V2 = [cmd(f"nested:{m}", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--model", m], s)
+            for m, s in zip(STATS_MODELS, (5400, 3600, 1800))]
+LTX_RUNS["stats2v2"] = []
+# C2 / C2-g (2026-11-03, docs/phase3.md "C2"): denoising loss of velocity-scaled copies of the kmain scenes
+# (pilot.scenes.VEL_SETS) and of the kcont gravity continuations. Each pod renders its own scene bases, then scores them.
+# model: (scene set, pods, render fps and seconds, s per variant at 32 passes on its card: Cosmos 4090, LTX 3090)
+C2_PODS = {"cosmos2b": ("kvelc", 4, 16, 5.8125, 140), "ltx2b": ("kvell", 2, 24, 5.0417, 25)}
+KVEL_BASES = sorted(f"{f}_{i:02d}" for f in ("ca", "cv") for i in range(50))     # pilot.likelihood.bases order
+C2_BASES = {}                                                                     # job: {scene set: its bases}
+
+
+def _c2_jobs():
+    jobs = {}
+    for model, (s, n, fps, sec, per_s) in C2_PODS.items():
+        for k in range(1, n + 1):
+            sh, name = f"{k}/{n}", f"c2{s[-1]}{k}of{n}"
+            C2_BASES[name] = {s: [f"{s}_{b}" for b in KVEL_BASES[k - 1::n]]}
+            steps = [dict(name=f"render:{s}", kind="cmd", est_s=len(C2_BASES[name][s]) * 5 * 15, cmd=[
+                "bash", "-c", f"python -m pilot.likelihood --set {s} --shard {sh} --write-shard data/shard_{s} && "
+                              f"{BPY} -m pilot.render data/shard_{s} --out data/renders/{s} --gpu --fps {fps} --seconds {sec}"])]
+            if model == "cosmos2b":                          # C2-g: the 10 kcont bases (rendered), 16 noise levels
+                C2_BASES[name]["kcont"] = [f"kcont_{i:02d}" for i in range(10)][k - 1::n]
+                steps.append(_likelihood(model, "kcont", sh, name, 16, len(C2_BASES[name]["kcont"]) * 7 * 2 * per_s))
+            steps.append(_likelihood(model, s, sh, name, 8, len(C2_BASES[name][s]) * 5 * per_s))
+            jobs[name] = steps
+            LTX_RUNS[name] = []
+    return jobs
+
+
+def _likelihood(model, s, sh, name, sigmas, est_s):
+    out = f"results/{'c2g' if s == 'kcont' else 'c2'}_{s}_{model}_ltx_{name}.csv"
+    return cmd(f"{'c2g' if s == 'kcont' else 'c2'}:{model}", ["-m", "pilot.likelihood", "--model", model, "--set", s,
+                                                             "--shard", sh, "--sigmas", str(sigmas), "--out", out],
+               est_s) | dict(model=model)                   # model: job_repos downloads it
+
+
+C2_JOBS = _c2_jobs()
+LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
+    | {"stats2v2": STATS2V2} | C2_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

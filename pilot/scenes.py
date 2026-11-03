@@ -8,6 +8,7 @@ the ground truth is exact. Gravity can switch value at one time (used for C2-g c
     python -m pilot.scenes --out data/scenes
 """
 import argparse
+import copy
 import json
 import math
 from pathlib import Path
@@ -101,18 +102,25 @@ def ramp_track(scene, obj, t):
 
 
 def object_track(scene, obj, t):
-    """Centre (x, z) in metres at times t."""
+    """Centre (x, z) in metres at times t. scene["vswitch"] = [t_s, k]: the velocity is multiplied by k at t_s (C2)."""
     if obj["motion"] == "ramp":
         return ramp_track(scene, obj, t)
+    t = np.asarray(t, float)
     floor = scene["floor_z"] + obj["size_m"] / 2
-    x = obj["x0"] + obj["vx"] * np.asarray(t, float)
+    ts, k = scene.get("vswitch", (math.inf, 1.0))
+    x = obj["x0"] + obj["vx"] * (np.minimum(t, ts) + k * np.maximum(t - ts, 0.0))
     if obj["motion"] == "floor":
         if "t_c" in obj:                       # collision: new constant velocity from t_c on
-            x = np.where(np.asarray(t, float) < obj["t_c"], x,
-                         obj["x0"] + obj["vx"] * obj["t_c"] + obj["v_after"] * (np.asarray(t, float) - obj["t_c"]))
+            x = np.where(t < obj["t_c"], x, obj["x0"] + obj["vx"] * obj["t_c"] + obj["v_after"] * (t - obj["t_c"]))
         return x, np.full_like(x, floor)
     segs, _ = vertical_segments(obj["z0"], obj["vz0"], scene["gravity"], obj["e"], floor, scene["duration_s"])
-    return x, eval_segments(segs, t)
+    if ts == math.inf:
+        return x, eval_segments(segs, t)
+    assert len(scene["gravity"]) == 1, "vswitch restarts the vertical motion under one gravity"
+    s = next(s for s in segs if s[0] <= ts <= s[1])
+    z1, vz1 = eval_segments([s], ts)[0], s[3] - s[4] * (ts - s[0])
+    late, _ = vertical_segments(z1, k * vz1, scene["gravity"], obj["e"], floor, scene["duration_s"] - ts)
+    return x, np.where(t < ts, eval_segments(segs, t), eval_segments(late, t - ts))
 
 
 # ---------------------------------------------------------------- sampling
@@ -279,10 +287,9 @@ def describe_num(scene):
 
 
 # ---------------------------------------------------------------- ground-truth export
-def finalise(scene, cam, cfg, rng):
+def set_tracks(scene, cam, cfg, strict=True):
+    """Exact tracks at the render frame rate; strict: the object must stay in frame."""
     r = cfg["render"]
-    scene.update(camera=cam, floor_z=cam["floor_z"], duration_s=r["duration_s"], fps=r["fps"],
-                 env_seed=int(rng.integers(1 << 31)))
     t = np.arange(int(round(r["duration_s"] * r["fps"]))) / r["fps"]
     tracks = []
     for o in scene["objects"]:
@@ -291,8 +298,16 @@ def finalise(scene, cam, cfg, rng):
         tracks.append(dict(x_m=x.round(5).tolist(), z_m=z.round(5).tolist(),
                            u_px=u.round(3).tolist(), v_px=v.round(3).tolist(),
                            radius_px=o["size_m"] / 2 * px_per_m(cam)))
-        assert np.all((u > 0) & (u < cam["width"]) & (v > 0) & (v < cam["height"])), f"{scene['id']} leaves frame"
+        assert not strict or np.all((u > 0) & (u < cam["width"]) & (v > 0) & (v < cam["height"])), \
+            f"{scene['id']} leaves frame"
     scene["tracks"] = tracks
+
+
+def finalise(scene, cam, cfg, rng):
+    r = cfg["render"]
+    scene.update(camera=cam, floor_z=cam["floor_z"], duration_s=r["duration_s"], fps=r["fps"],
+                 env_seed=int(rng.integers(1 << 31)))
+    set_tracks(scene, cam, cfg)
     scene["caption"] = caption(scene)
     scene["b2nl"] = describe(scene)
     if scene["family"] in ("cv", "bounce"):
@@ -362,6 +377,29 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
             c = finalise(c, cam, cfg, rng)
             c["env_seed"] = env
             out["kcont"].append(c)
+    # C2 (2026-11-03): every kmain scene with its velocity scaled from the end of a model's input window on, no new draws
+    for name, model in VEL_SETS.items():
+        out[name] = velocity_copies(out["kmain"], name, cfg["models"][model], cam, cfg)
+    return out
+
+
+VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b"}      # C2 scene set: model whose input window and clip length it uses
+V_SCALES = (0.5, 0.8, 1.0, 1.25, 2.0)
+
+
+def velocity_copies(main, name, mcfg, cam, cfg):
+    """Copies of the kmain scenes, same look; ids kvelc_cv_00_x0.5. Fast copies may leave the frame (gt in_frame)."""
+    t_switch, t = mcfg["cond_frames"] / mcfg["fps"], np.arange(mcfg["num_frames"]) / mcfg["fps"]
+    out = []
+    for m in main:
+        for k in V_SCALES:
+            c = {f: v for f, v in copy.deepcopy(m).items() if f not in ("b2nl", "b2num")}
+            c.update(id=m["id"].replace("kmain", name) + f"_x{k}", vswitch=[t_switch, k])
+            c["gt"] = dict(m["gt"], v_scale=k, t_switch=t_switch)
+            set_tracks(c, cam, cfg, strict=False)
+            u, v = project(cam, *object_track(c, c["objects"][0], t))
+            c["gt"]["in_frame"] = float(np.mean((u > 0) & (u < cam["width"]) & (v > 0) & (v < cam["height"])))
+            out.append(c)
     return out
 
 

@@ -236,6 +236,17 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Hosts:** measured s/clip, 3090 vs 4090: Cosmos 619 vs 316, VACE 856 vs 389, LTX 69. At $0.25 and $0.43/h the 4090 costs the same or less per clip, so Cosmos and VACE fill the 4090s first. LTX and renders use 3090s.
 - **Next:** `rescore3` (CoTracker3 on the new clips), the probes on the larger B1 + B5 sets, `stats` with `--v2`, then C2-g and C2. C2 needs new velocity-scaled renders and is priced after generation.
 
+## After round 3: nested gap with CoTracker3, C2 and C2-g (2026-11-03, user approved, credit $44.52)
+
+- **`stats2v2`** (one RTX 3090, CPU-bound): `pilot.analysis nested --v2` for the three models on the round 3 B1 + B5 sets. Output `results/c3_{model}_v2_nested*.csv`.
+- **C2 and C2-g** (`pilot/likelihood.py`, deviation D5):
+  - Scene sets `kvelc` (Cosmos window) and `kvell` (LTX window): each kmain scene with its velocity scaled by 0.5, 0.8, 1, 1.25 and 2 after the input window.
+  - C2-g reuses the 70 `kcont` renders with 16 noise levels instead of the pilot's 8.
+  - Jobs `c2cKof4` (Cosmos, RTX 4090): render 25 bases x 5 copies, C2-g on 2-3 kcont bases, then C2. Jobs `c2lKof2` (LTX, RTX 3090): render 50 bases x 5 copies, then C2.
+  - Rows are saved after every base (`results/c2{,g}_{set}_{model}_ltx_{job}.csv`), so a relaunched pod resumes. Summaries per base are in `*_summary.csv`: `k_implied`, `sym_mra` and `pref_acc`.
+  - Estimates: Cosmos about 140 s per copy at 32 forward passes, LTX about 25 s. These are guesses from the generation timings, to be replaced by the measured `wall_s`.
+  - Cost estimate: about $13 for the Cosmos pods, $1.5 for LTX and $1 for `stats2v2`.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

@@ -70,3 +70,15 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 - **What is not changed:** gates, thresholds, the metric, the measurability rule and the tracker.
 - **New P0:** the `collide` and `ramp` readouts are new, so `results/p0_kl3_ltx_render3s1of3.csv` checks them against ground truth on 6 full renders before generation starts (G1a threshold, sym MRA >= 0.80).
 - **Approved by:** the user approved the experiment list on 2026-11-01. The scene families are my choice within it.
+
+## D5 — C2 and C2-g setup (2026-11-03, before any C2 or C2-g run)
+
+- **Proposal v5:** C2 is the denoising loss of the real continuation against copies with the velocity scaled by 0.5, 0.8, 1.25 and 2 (480 clips, 120 scenes), on Cosmos-2B and LTX. C2-g is the denoising loss of Kubric continuations at 7 gravity values.
+- **Change:**
+  - The C2 scenes are the 100 kmain scenes, not 120. Each one gets copies with the velocity (both components for a bouncing ball) multiplied by k from the end of the model's input window on, at 0.3125 s for Cosmos (`kvelc`) and 1.04 s for LTX (`kvell`). The true k = 1 copy is rendered with the others in the same pod, so render version and noise cannot separate it from them. That makes 500 clips per model.
+  - Fast copies may leave the frame. At k = 2, 32 of 50 cv and 23 of 50 bounce scenes leave it at some point within the Cosmos clip. The share of frames in frame is stored per copy (`gt.in_frame`), and the analysis reports the preference both on all copies and on the copies that stay in frame.
+  - C2-g uses the 70 existing Blender `kcont` renders, not Kubric, like every other scene set.
+  - Loss: 8 noise levels evenly spread over the model's sampling schedule x 4 noise draws for C2, and 16 x 4 for C2-g ("more noise levels"). The draws are the same for every variant of a base. The input-window latents stay clean, as each model's own conditioning does.
+  - Per base: the implied multiplier (minimum of a parabola in ln k), its symmetric MRA against 1, and the share of altered copies whose loss is higher than the true copy's (`pref_acc`, chance 0.5).
+- **What is not changed:** gates, thresholds and the scenes of every other experiment. Every earlier scene file is byte-identical (`tests/test_round3.py`, checked by regenerating them).
+- **Approved by:** the user approved running C2 and C2-g on 2026-11-03. The scene choice and loss settings are mine.
