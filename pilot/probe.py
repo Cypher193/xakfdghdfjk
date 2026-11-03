@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, GroupKFold
 from sklearn.pipeline import make_pipeline
@@ -107,11 +108,10 @@ def run(runs, model, exps, target, out_csv, pool="obj"):
         if not name.endswith(f"/{pool}") or name.startswith("vae/"):
             continue
         n_blocks, n_steps = A.shape[:2]
-        for b in range(n_blocks):
-            for s in range(n_steps):
-                X = A[b, s]
-                rows.append(dict(feature=name, block=b, step=s, sym_mra=score(X, y, g)[0],
-                                 control=score(X, y_ctrl, g)[0]))
+        cells = [(b, s) for b in range(n_blocks) for s in range(n_steps)]
+        res = Parallel(-1)(delayed(score)(A[b, s], t, g) for b, s in cells for t in (y, y_ctrl))   # serial: > 50 min
+        rows += [dict(feature=name, block=b, step=s, sym_mra=res[2 * i][0], control=res[2 * i + 1][0])
+                 for i, (b, s) in enumerate(cells)]
         print(f"{name}: done {n_blocks} blocks x {n_steps} steps", flush=True)
     df = pd.DataFrame(rows)
     df["selectivity"] = df.sym_mra - df.control
