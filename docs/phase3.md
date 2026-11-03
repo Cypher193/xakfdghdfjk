@@ -232,6 +232,7 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - `kl3diag`: 15 full ramp renders scored the same way (`results/kl3diag_ltx_kl3diag.csv`). All 15 are measurable and the readout is about 2% low, after two tracker fixes for the tilted box: the scale in `px_per_m` and the size of the SAM2 prompt.
   - `{model}gKofN`: Cosmos 20 pods, VACE 11, LTX 2. Each pod runs one model, a slice of every experiment, then SAM2 scoring. They start after `render3`, because a pod pulls its inputs once.
   - `{model}rescore3`: CoTracker3 on every round 3 clip and the steer clips, one pod per model, about 3550 clips at 15 s. The VACE pod first runs P0 on the 21 full kl3 renders, because the kl3 readouts were only validated with SAM2.
+  - `rederr`: rescores, with both trackers, the 153 clips in `configs/rederr.txt`. Their score files held `ValueError: Initial guess is outside of provided bounds` from `track.fit_bounce`, which crashed when a track started below the floor. Mostly text-only Cosmos and VACE clips, so their measurable share was understated. `pilot.score` now treats such a file as not scored.
 - **Hosts:** measured s/clip, 3090 vs 4090: Cosmos 619 vs 316, VACE 856 vs 389, LTX 69. At $0.25 and $0.43/h the 4090 costs the same or less per clip, so Cosmos and VACE fill the 4090s first. LTX and renders use 3090s.
 - **Next:** `rescore3` (CoTracker3 on the new clips), the probes on the larger B1 + B5 sets, `stats` with `--v2`, then C2-g and C2. C2 needs new velocity-scaled renders and is priced after generation.
 

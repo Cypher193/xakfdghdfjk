@@ -97,12 +97,17 @@ def score_name(tracker):
     return "score.json" if tracker == "sam2" else "score_v2.json"
 
 
+def scored(p):
+    """A readout exception is not a result, so a later pass redoes it (job rederr)."""
+    return p.exists() and not json.loads(p.read_text(encoding="utf-8")).get("reason", "").startswith("error")
+
+
 def score_all(runs="runs", models=None, tracker="sam2"):
     manifest = {e["id"]: e for e in json.loads(Path("data/real/manifest.json").read_text(encoding="utf-8"))}
     done, name = 0, score_name(tracker)
     for v in sorted(Path(runs).glob("*/*/*/video.mp4")):
         d = v.parent
-        if (d / name).exists() or not (d / "meta.json").exists() or d.parts[-3] == "timing"                 or (models and d.parts[-2] not in models):
+        if scored(d / name) or not (d / "meta.json").exists() or d.parts[-3] == "timing"                 or (models and d.parts[-2] not in models):
             continue
         meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         kind, spec = find_spec(meta["scene"], manifest)

@@ -102,6 +102,11 @@ elif os.environ.get("LTX_JOB"):
             + ["data/renders/kl3full/*.mp4"] * (j == "vace13rescore3") \
             + mine + [f"{r}/*/{f}" for r in RESCORE_RUNS for f in ("video.mp4", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"{r}/*/score_v2.json" for r in RESCORE_RUNS]
+    if j == "rederr":                     # only the listed clips, both score files
+        from run_pilot import REDERR_DIRS
+        PATTERNS = ["data/scenes/**", "data/real/manifest.json"] + mine + \
+            [f"{d}/{f}" for d in REDERR_DIRS for f in ("video.mp4", "meta.json", "score.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + [f"{d}/score*.json" for d in REDERR_DIRS]
     gens = [s for s in MODEL_JOBS.get(j, []) if s["kind"] == "gen"]
     if gens:                              # cosmos2b / vace13 shard: inputs, every shard's meta + score + video (skip check;
         import yaml                       # a relaunch scores clips an earlier pod never scored; ~3 MB a clip). Not the

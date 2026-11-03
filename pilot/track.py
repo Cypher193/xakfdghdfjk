@@ -218,8 +218,9 @@ def fit_bounce(t, z, z_floor, g_grid=np.geomspace(0.3, 60, 25), e_grid=(0.3, 0.5
     g_seeds = [-2 * s["c2"] for s in flight_segments(t, z)]           # per-flight estimates as extra starts
     starts = sorted(((z[0], v0, g, e) for g in [*g_grid, *g_seeds] for e in e_grid),
                     key=lambda p: np.sum((model(p) - z) ** 2))[:3]
-    fits = [least_squares(lambda p: model(p) - z, p0, x_scale=[0.1, 0.5, p0[2], 0.1],
-                          bounds=([z_floor, -20, 0.05, 0.0], [z_floor + 10, 20, 200, 0.99])) for p0 in starts]
+    lo, hi = [z_floor, -20, 0.05, 0.0], [z_floor + 10, 20, 200, 0.99]
+    starts = [np.clip(p0, lo, hi) for p0 in starts]                   # a track can start below the floor
+    fits = [least_squares(lambda p: model(p) - z, p0, x_scale=[0.1, 0.5, p0[2], 0.1], bounds=(lo, hi)) for p0 in starts]
     r = min(fits, key=lambda f: f.cost)
     p = r.x
     segs, contacts = vertical_segments(p[0], p[1], [(0.0, p[2])], p[3], z_floor, T)

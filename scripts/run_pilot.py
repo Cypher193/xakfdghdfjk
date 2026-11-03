@@ -343,6 +343,12 @@ for _m, _n in (("ltx2b", 1471), ("cosmos2b", 1480), ("vace13", 600)):
                                             f"results/show_v2_ltx_{_j}.csv", "--faults", f"results/faults_ltx_{_j}.csv"],
                             _n * 15)]
     LTX_RUNS[_j] = []
+# Clips whose score.json / score_v2.json holds a readout exception (track.fit_bounce bounds, fixed 2026-11-03): both trackers
+REDERR_DIRS = (Path(__file__).resolve().parents[1] / "configs/rederr.txt").read_text(encoding="utf-8").split()
+RESCORE_JOBS["rederr"] = [cmd(f"score:{tr}", ["-m", "pilot.score", "--tracker", tr, "--table",
+                                              f"results/show{'_v2' * (tr != 'sam2')}_ltx_rederr.csv"], len(REDERR_DIRS) * 15)
+                          for tr in ("sam2", "cotracker3")]
+LTX_RUNS["rederr"] = []
 RESCORE_JOBS["vace13rescore3"].insert(0, cmd("p0:kl3", ["-m", "pilot.track", "validate", "data/renders/kl3full", "--scenes", "data/scenes/kl3",
                                                         "--tracker", "cotracker3", "--out", "results/p0_kl3_cotracker3_ltx_vace13rescore3.csv"],
                                              21 * 20))          # kl3 was only validated with SAM2

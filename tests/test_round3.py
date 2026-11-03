@@ -52,6 +52,8 @@ for s in built["kl3"]:
         k = "v" if s["family"] == "collide" else "a_slope"
         assert abs(r[k] / s["gt"][k] - 1) < (0.01 if k == "v" else 0.12), (s["id"], fps, r, s["gt"])
 assert target_value(built["kl3"][0]["gt"], "hspeed") == built["kl3"][0]["gt"]["v"]
+t = np.arange(40) / 16                                  # a track that starts below the floor still fits
+assert track.fit_bounce(t, 0.5 * np.abs(np.sin(2 * t)) - 0.02, 0.0)["g"] > 0
 
 # text: every prompt field exists, b2num and b2nl carry the same scene, no prompt nears the shortest encoder limit
 main = {s["id"]: s for s in built["kmain"]}
@@ -115,5 +117,15 @@ for m, n_steps in (("ltx2b", 1), ("cosmos2b", 1), ("vace13", 2)):
     assert not match("runs/c9/ltx2b/x/video.mp4", s.PATTERNS) and match("data/scenes/kl3/kl3_co_00.json", s.PATTERNS)
 assert match("data/renders/kl3full/kl3_ra_00.mp4", s.PATTERNS)      # s is the VACE pod here
 assert not match("data/renders/kl3full/kl3_ra_00.mp4", sync_for("ltx2brescore3").PATTERNS)
+s = sync_for("rederr")
+assert match("runs/b2nl/vace13/kmain_ca_06_s2/video.mp4", s.PATTERNS) and not match("runs/b2nl/vace13/kmain_ca_99_s2/video.mp4", s.PATTERNS)
+assert match("runs/b2nl/vace13/kmain_ca_06_s2/score_v2.json", s.PUSH_PATTERNS) and match("results/show_v2_ltx_rederr.csv", s.PUSH_PATTERNS)
+assert not match("runs/b2nl/vace13/kmain_ca_06_s2/video.mp4", s.PUSH_PATTERNS) and job_repos("rederr") == [("facebook/sam2.1-hiera-large", None)]
+from pilot.score import scored
+p = Path("tests/_scored_tmp.json")
+for body, want in (({"measurable": False, "reason": "error: ValueError: x"}, False), ({"measurable": False, "reason": "lost"}, True)):
+    p.write_text(json.dumps(body))
+    assert scored(p) is want
+p.unlink()
 del os.environ["LTX_JOB"], os.environ["HF_DATA_REPO"]
 print("round 3 checks passed:", clips)
