@@ -247,6 +247,32 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - Estimates: Cosmos about 140 s per copy at 32 forward passes, LTX about 25 s. These are guesses from the generation timings, to be replaced by the measured `wall_s`.
   - Cost estimate: about $13 for the Cosmos pods, $1.5 for LTX and $1 for `stats2v2`.
 
+### Results (2026-11-04, all pods verified on HF; `python scripts/c2_report.py`)
+
+- **Cost:** $16.62 in all, credit $44.52 to $27.90. Measured: Cosmos about 4.2 s per forward pass (about 670 s per base at 5 copies x 32 passes), LTX about 128 s per base.
+- **`stats2v2`:** the nested-CV gap matches the best-of-all gap in every cell (LTX hspeed .227 vs .223, g .460 vs .484, e .189 vs .193; Cosmos .414/.424, .601/.601, .218/.220; VACE .459/.473, .746/.751, .321/.329; Holm p about 0 for all). Choosing the block and step on all data does not inflate the gap.
+- **C2 (100 bases per model, 4 altered copies each).** `pref_acc` is the share of altered copies whose loss is above the true copy's (chance 0.5).
+
+| | Cosmos (kvelc) | LTX (kvell) |
+|---|---|---|
+| pref_acc [95% CI over bases] | 0.688 [0.642, 0.733] | 0.733 [0.677, 0.785] |
+| k = 0.5 / 0.8 (slower) | 0.40 / 0.40 | 0.54 / 0.53 |
+| k = 1.25 / 2 (faster) | 0.95 / 1.00 | 0.88 / 0.98 |
+| constant velocity (cv) / bounce (ca) | 0.87 / 0.505 | 0.975 / 0.49 |
+| in-frame copies only | 0.629 (337 of 400) | 0.712 (371 of 400) |
+| loss(0.8) < loss(1.25) | 97% | 94% |
+| loss(0.5) < loss(2) | 100% | 99% |
+| lowest-loss k: 0.5 / 0.8 / 1 / 1.25 | 54 / 17 / 29 / 0 | 38 / 14 / 47 / 1 |
+| k_implied median | 0.570 | 0.800 |
+
+- **C2-g (Cosmos, 10 kcont bases, 16 noise levels x 4 draws):** pref_acc 0.583 [0.467, 0.700]. Win share by gravity multiplier: 0.25 1.0, 0.5 0.9, 0.75 0.7, 1.5 0.6, 2 0.2, 4 0.1. The lowest loss is at 4 g in 6 bases, 2 g in 3 and 1.5 g in 1, never at the true g. k_implied median 2.645 (about 26 m/s²), symmetric MRA 0.188. The g probe on the same model reads 0.90 MRA.
+- **Reading:**
+  - Both models' likelihoods reject faster copies almost always, and are at or below chance on slower ones. The lowest loss sits at a slower speed than the truth in most bases (Cosmos 71, LTX 52).
+  - Above chance comes only from constant-velocity scenes. On bounces both models are at chance.
+  - The Cosmos likelihood favours stronger gravity, while its activations hold g well (probe g obj +.317 over control). This is the proposal's "know but do not show" pattern measured on likelihood.
+  - A common cause is plausible but untested: a prior for less motion. Slower copies move less, and with stronger gravity the ball lands and settles sooner. A motion-matched comparison (copies with equal pixel displacement) would test it.
+- **Correction:** LTX in-frame-only pref_acc is 0.712 with `scripts/c2_report.py`; earlier notes said 0.72 from an ad hoc count.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
