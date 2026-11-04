@@ -2,11 +2,13 @@
 
 Each scene base has variants that share the input window and differ after it:
   kcont (C2-g, Cosmos): gravity switches to k x g at the end of the window, k in {0.25 ... 4}
-  kvelc / kvell (C2, Cosmos / LTX): the velocity is scaled by k in {0.5, 0.8, 1, 1.25, 2} (pilot.scenes.VEL_SETS)
-For each variant: loss ||v_pred - (eps - x0)||^2 on the continuation latent frames, the window frames clean, averaged
-over noise levels and fixed noise draws (identical across a base's variants). Per base: the implied multiplier (minimum
+  kcontl (C2-g, LTX): the same with the switch at the end of LTX's window
+  kvelc / kvell / kvelv (C2, Cosmos / LTX / VACE): the velocity is scaled by k in {0.5, 0.8, 1, 1.25, 2} (VEL_SETS)
+  kturnc / kturnl (C2-turn, Cosmos / LTX): the velocity turns by k in {0, 30, 180} degrees, same speed (TURN_SETS)
+For each variant: loss ||v_pred - (eps - x0)||^2 on the continuation latent frames (window frames clean for Cosmos and
+LTX; VACE noises all frames and gets the window through its context), averaged over noise levels and fixed noise draws (identical across a base's variants). Per base: the implied multiplier (minimum
 of a parabola in ln k), its symmetric MRA against the true k = 1, and the share of altered variants with a higher loss
-than the true one (pref_acc; chance 0.5).
+than the true one (pref_acc; chance 0.5). The implied multiplier is left out for the turn sets.
 
     python -m pilot.likelihood --model cosmos2b --set kcont --sigmas 16 --out results/c2g_cosmos2b.csv
     python -m pilot.likelihood --model ltx2b --set kvell --shard 1/2 --out results/c2_kvell_ltx2b.csv
@@ -24,12 +26,14 @@ import numpy as np
 import pandas as pd
 import torch
 import yaml
+from PIL import Image
 
 from pilot import metrics
 from pilot.models import _pil
 from pilot.track import load_video
 
-RENDER = {"kcont": (16, 5.8125), "kvelc": (16, 5.8125), "kvell": (24, 5.0417)}   # fps, seconds: >= the model's clip
+RENDER = {"kcont": (16, 5.8125), "kvelc": (16, 5.8125), "kturnc": (16, 5.8125),     # fps, seconds: >= the model's clip
+          "kvell": (24, 5.0417), "kturnl": (24, 5.0417), "kcontl": (24, 5.0417), "kvelv": (16, 5.0625)}
 
 
 class CosmosLoss:
@@ -124,7 +128,52 @@ class LTXLoss:
         return float(np.mean(out))
 
 
-LOSSES = {"cosmos2b": CosmosLoss, "ltx2b": LTXLoss}
+class VaceLoss:
+    """WanVACEPipeline's conditioning: every latent frame is noised and the window enters through the VACE context
+    (window frames then grey, mask 0 on the window), as pilot.models._vace_mask generates; output v = eps - x0."""
+    sigmas = CosmosLoss.sigmas
+
+    def __init__(self, pipe, cfg, device, dtype):
+        self.pipe, self.cfg, self.device, self.dtype = pipe, cfg, device, dtype
+
+    @torch.no_grad()
+    def latents(self, frames):
+        """Also sets self.ctrl, the VACE context of these frames' input window, for the next loss call."""
+        c, p = self.cfg, self.pipe
+        pil = _pil(frames, c["width"], c["height"])
+        x = p.video_processor.preprocess_video(pil, c["height"], c["width"])
+        z = p.vae.encode(x.to(self.device, p.vae.dtype)).latent_dist.mode().float()
+        mean = torch.tensor(p.vae.config.latents_mean).view(1, -1, 1, 1, 1).to(z)
+        std = torch.tensor(p.vae.config.latents_std).view(1, -1, 1, 1, 1).to(z)
+        n, size = len(pil), pil[0].size
+        grey = Image.new("RGB", size, (127, 127, 127))
+        video = pil[: c["cond_frames"]] + [grey] * (n - c["cond_frames"])
+        mask = [Image.new("L", size, 0)] * c["cond_frames"] + [Image.new("L", size, 255)] * (n - c["cond_frames"])
+        video, mask, refs = p.preprocess_conditions(video, mask, None, 1, c["height"], c["width"], n, torch.float32,
+                                                    self.device)
+        ctrl = torch.cat([p.prepare_video_latents(video, mask, refs, None, self.device), p.prepare_masks(mask, refs)], 1)
+        self.ctrl = ctrl.to(self.dtype)
+        return (z - mean) / std
+
+    @torch.no_grad()
+    def text(self, prompt):
+        return self.pipe.encode_prompt(prompt, do_classifier_free_guidance=False, device=self.device)[0]
+
+    @torch.no_grad()
+    def loss(self, x0, emb, sigmas, noises, n_cond_latent):
+        out = []
+        for s in sigmas:
+            for eps in noises:
+                xs = (1 - s) * x0 + s * eps
+                t = torch.tensor([s * 1000.0], device=self.device)
+                v = self.pipe.transformer(hidden_states=xs.to(self.dtype), timestep=t,
+                                          encoder_hidden_states=emb.to(self.dtype), control_hidden_states=self.ctrl,
+                                          return_dict=False)[0].float()
+                out.append(((v - (eps - x0)) ** 2)[:, :, n_cond_latent:].mean().item())
+        return float(np.mean(out))
+
+
+LOSSES = {"cosmos2b": CosmosLoss, "ltx2b": LTXLoss, "vace13": VaceLoss}
 
 
 def implied_multiplier(ks, losses):
@@ -139,7 +188,12 @@ def implied_multiplier(ks, losses):
 
 
 def mult(spec):
-    return spec["gt"]["cont_mult"] if "cont_mult" in spec["gt"] else spec["gt"]["v_scale"]
+    gt = spec["gt"]
+    return gt["cont_mult"] if "cont_mult" in gt else gt["turn_deg"] if "turn_deg" in gt else gt["v_scale"]
+
+
+def is_true(spec):
+    return mult(spec) == (0 if "turn_deg" in spec["gt"] else 1.0)
 
 
 def bases(scene_root, shard=None):
@@ -155,10 +209,10 @@ def bases(scene_root, shard=None):
 def summarize(df):
     rows = []
     for base, g in df.groupby("base"):
-        k = implied_multiplier(g.k.to_numpy(), g.loss.to_numpy())
-        true = g.loss[g.k == 1.0]
-        alt = g[g.k != 1.0]
-        rows.append(dict(base=base, k_implied=k, sym_mra=float(metrics.sym_mra(k, 1.0)),
+        t = g.true.astype(bool) if "true" in g else g.k == 1.0
+        k = implied_multiplier(g.k.to_numpy(), g.loss.to_numpy()) if (g.k > 0).all() else np.nan
+        true, alt = g.loss[t], g[~t]
+        rows.append(dict(base=base, k_implied=k, sym_mra=float(metrics.sym_mra(k, 1.0)) if k == k else np.nan,
                          pref_acc=float((alt.loss > true.iloc[0]).mean()) if len(true) and len(alt) else np.nan))
     return pd.DataFrame(rows)
 
@@ -178,7 +232,7 @@ def run(lo, cfg, scene_root, render_root, out, n_sigmas=8, n_noise=4, shard=None
             x0 = lo.latents(frames[: cfg["num_frames"]])
             if noises is None:                                  # same draws for every k
                 noises = [torch.randn(x0.shape, generator=gen, device=lo.device) for _ in range(n_noise)]
-            rows.append(dict(base=base, id=spec["id"], k=mult(spec), in_frame=spec["gt"].get("in_frame", 1.0),
+            rows.append(dict(base=base, id=spec["id"], k=mult(spec), true=is_true(spec), in_frame=spec["gt"].get("in_frame", 1.0),
                              loss=lo.loss(x0, emb, sigmas, noises, n_cond_latent), n_sigmas=n_sigmas, n_noise=n_noise))
             print(f"likelihood {spec['id']}: loss {rows[-1]['loss']:.5f}", flush=True)
         pd.DataFrame(rows).assign(wall_s=round(time.time() - t0, 1)).to_csv(out, mode="a", header=not out.exists(),

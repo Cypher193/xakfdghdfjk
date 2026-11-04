@@ -402,9 +402,7 @@ def _c2_jobs():
         for k in range(1, n + 1):
             sh, name = f"{k}/{n}", f"c2{s[-1]}{k}of{n}"
             C2_BASES[name] = {s: [f"{s}_{b}" for b in KVEL_BASES[k - 1::n]]}
-            steps = [dict(name=f"render:{s}", kind="cmd", est_s=len(C2_BASES[name][s]) * 5 * 15, cmd=[
-                "bash", "-c", f"python -m pilot.likelihood --set {s} --shard {sh} --write-shard data/shard_{s} && "
-                              f"{BPY} -m pilot.render data/shard_{s} --out data/renders/{s} --gpu --fps {fps} --seconds {sec}"])]
+            steps = [_render(s, sh, len(C2_BASES[name][s]) * 5, fps, sec)]
             if model == "cosmos2b":                          # C2-g: the 10 kcont bases (rendered), 16 noise levels
                 C2_BASES[name]["kcont"] = [f"kcont_{i:02d}" for i in range(10)][k - 1::n]
                 steps.append(_likelihood(model, "kcont", sh, name, 16, len(C2_BASES[name]["kcont"]) * 7 * 2 * per_s))
@@ -414,14 +412,43 @@ def _c2_jobs():
     return jobs
 
 
+def _render(s, sh, n_clips, fps, sec):
+    return dict(name=f"render:{s}", kind="cmd", est_s=n_clips * 15, cmd=[
+        "bash", "-c", f"python -m pilot.likelihood --set {s} --shard {sh} --write-shard data/shard_{s} && "
+                      f"{BPY} -m pilot.render data/shard_{s} --out data/renders/{s} --gpu --fps {fps} --seconds {sec}"])
+
+
 def _likelihood(model, s, sh, name, sigmas, est_s):
-    out = f"results/{'c2g' if s == 'kcont' else 'c2'}_{s}_{model}_ltx_{name}.csv"
-    return cmd(f"{'c2g' if s == 'kcont' else 'c2'}:{model}", ["-m", "pilot.likelihood", "--model", model, "--set", s,
-                                                             "--shard", sh, "--sigmas", str(sigmas), "--out", out],
+    exp = "c2g" if s.startswith("kcont") else "c2"
+    out = f"results/{exp}_{s}_{model}_ltx_{name}.csv"
+    return cmd(f"{exp}:{model}:{s}", ["-m", "pilot.likelihood", "--model", model, "--set", s,
+                                      "--shard", sh, "--sigmas", str(sigmas), "--out", out],
                est_s) | dict(model=model)                   # model: job_repos downloads it
 
 
 C2_JOBS = _c2_jobs()
+# C2 follow-ups (2026-11-04, docs/phase3.md): VACE C2 on kvelv, C2-turn (same speed, turned) on kturnc / kturnl,
+# LTX C2-g on kcontl. prefix: model, pods, s per variant at 32 passes (VACE ~3.9 s per pass on a 4090, from generation),
+# [(scene set, noise levels, variants per base: kturn* 3 for cv and 2 for bounces, render fps, seconds)]
+C3_PODS = {"c3v": ("vace13", 4, 140, [("kvelv", 8, 5, 16, 5.0625)]),
+           "c3c": ("cosmos2b", 3, 140, [("kturnc", 8, 2.5, 16, 5.8125)]),
+           "c3l": ("ltx2b", 2, 25, [("kcontl", 16, 7, 24, 5.0417), ("kturnl", 8, 2.5, 24, 5.0417)])}
+C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl")}
+
+
+def _c3_jobs():
+    jobs = {}
+    for prefix, (model, n, per_s, sets) in C3_PODS.items():
+        for k in range(1, n + 1):
+            sh, name = f"{k}/{n}", f"{prefix}{k}of{n}"
+            C2_BASES[name] = {s: C3_SETS[s][k - 1::n] for s, *_ in sets}
+            jobs[name] = [_render(s, sh, len(C2_BASES[name][s]) * v, fps, sec) for s, _, v, fps, sec in sets]                 + [_likelihood(model, s, sh, name, sig, len(C2_BASES[name][s]) * v * per_s * sig / 8)
+                   for s, sig, v, *_ in sets]
+            LTX_RUNS[name] = []
+    return jobs
+
+
+C2_JOBS |= _c3_jobs()
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
     | {"stats2v2": STATS2V2} | C2_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))

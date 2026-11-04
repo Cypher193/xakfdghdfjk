@@ -273,6 +273,14 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - A common cause is plausible but untested: a prior for less motion. Slower copies move less, and with stronger gravity the ball lands and settles sooner. A motion-matched comparison (copies with equal pixel displacement) would test it.
 - **Correction:** LTX in-frame-only pref_acc is 0.712 with `scripts/c2_report.py`; earlier notes said 0.72 from an ad hoc count.
 
+### Follow-ups (2026-11-04, user approved A, B, C; deviation D6)
+
+- **A. LTX C2-g** on `kcontl`: the kcont scenes with the switch at LTX's window, 16 noise levels.
+- **B. C2-turn** on `kturnc` (Cosmos) and `kturnl` (LTX): the same speed, reversed or turned 30 degrees up, so the amount of motion matches the true copy. 250 copies per model.
+- **C. VACE C2** on `kvelv` with `pilot.likelihood.VaceLoss`.
+- **Jobs (`run_pilot.C3_PODS`):** `c3vKof4` (VACE, RTX 4090), `c3cKof3` (Cosmos, RTX 4090), `c3lKof2` (LTX, RTX 3090: kcontl and kturnl). Each renders its own bases first. Results `results/{c2,c2g}_{set}_{model}_ltx_{job}.csv`.
+- **Cost estimate:** VACE about $9, Cosmos about $5, LTX about $1.5, from about 125 s per VACE copy (3.9 s per pass on a 4090 in generation), 134 s per Cosmos copy and 25 s per LTX copy.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

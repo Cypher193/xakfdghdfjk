@@ -108,11 +108,11 @@ elif os.environ.get("LTX_JOB"):
             + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5") for m in STATS_MODELS for f in ("acts.npz", "meta.json", "score_v2.json")] \
             + [f"results/p6_{m}_{t}_obj.csv" for m in STATS_MODELS for t in ("hspeed", "g", "e")]
         PUSH_PATTERNS = mine + ["results/c3_*_v2_nested*"]
-    if j.startswith("c2"):                # C2 / C2-g: its scene bases' renders (kvel*: rendered here, kcont: exist)
+    if j.startswith(("c2", "c3")):        # C2 / C2-g: its scene bases' renders (rendered here, except kcont)
         from run_pilot import C2_BASES
         rend = [f"data/renders/{s}/{b}_x*" for s, bs in C2_BASES[j].items() for b in bs]
         PATTERNS = ["data/scenes/**", "assets_cache/**"] + rend + mine
-        PUSH_PATTERNS = mine + [r for r in rend if "kcont" not in r]
+        PUSH_PATTERNS = mine + [r for r in rend if "/kcont/" not in r]
     if j == "rederr":                     # only the listed clips, both score files
         from run_pilot import REDERR_DIRS
         PATTERNS = ["data/scenes/**", "data/real/manifest.json"] + mine + \

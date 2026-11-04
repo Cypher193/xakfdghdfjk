@@ -23,7 +23,7 @@ cfg = yaml.safe_load(open("configs/pilot.yaml"))
 built = scenes.build(cfg)
 ids = {k: [s["id"] for s in v] for k, v in built.items()}
 assert {k: len(v) for k, v in built.items()} == dict(kmain=100, kgrav=90, kratio=10, kratio2=40, kl3=30, kcont=70, kvelc=500,
-                                                     kvell=500)
+                                                     kvell=500, kvelv=500, kturnc=250, kturnl=250, kcontl=70)
 
 # collisions: momentum holds, restitution holds, contact after the longest input window, balls touch at contact
 for s in built["kl3"][:15]:
@@ -128,7 +128,9 @@ assert not match("results/c3_ltx2b_nested.csv", s.PUSH_PATTERNS) and all("--v2" 
 # C2: each pod renders and scores its own bases, every base exactly once per scene set; Cosmos pods also take C2-g
 from pilot.likelihood import bases
 from run_pilot import C2_BASES
-for s, jobs in (("kvelc", [f"c2c{k}of4" for k in range(1, 5)]), ("kvell", ["c2l1of2", "c2l2of2"]), ("kcont", [f"c2c{k}of4" for k in range(1, 5)])):
+for s, jobs in (("kvelc", [f"c2c{k}of4" for k in range(1, 5)]), ("kvell", ["c2l1of2", "c2l2of2"]), ("kcont", [f"c2c{k}of4" for k in range(1, 5)]),
+                ("kvelv", [f"c3v{k}of4" for k in range(1, 5)]), ("kturnc", [f"c3c{k}of3" for k in range(1, 4)]),
+                ("kturnl", ["c3l1of2", "c3l2of2"]), ("kcontl", ["c3l1of2", "c3l2of2"])):
     got = [b for j in jobs for b in C2_BASES[j][s]]
     assert sorted(got) == sorted(bases(f"data/scenes/{s}")) and len(set(got)) == len(got), s
     for k, j in enumerate(jobs, 1):
@@ -139,8 +141,12 @@ s = sync_for("c2c2of4")
 assert match("data/renders/kvelc/kvelc_ca_01_x0.5.mp4", s.PUSH_PATTERNS) and not match("data/renders/kvelc/kvelc_ca_00_x0.5.mp4", s.PATTERNS)
 assert match("data/renders/kcont/kcont_01_x4.0.mp4", s.PATTERNS) and not match("data/renders/kcont/kcont_01_x4.0.mp4", s.PUSH_PATTERNS)
 assert match("results/c2_kvelc_cosmos2b_ltx_c2c2of4_summary.csv", s.PUSH_PATTERNS) and match("assets_cache/x.json", s.PATTERNS)
-assert [t["name"] for t in LTX_JOBS["c2c2of4"]] == ["render:kvelc", "c2g:cosmos2b", "c2:cosmos2b"]
-assert [t["name"] for t in LTX_JOBS["c2l1of2"]] == ["render:kvell", "c2:ltx2b"]
+assert [t["name"] for t in LTX_JOBS["c2c2of4"]] == ["render:kvelc", "c2g:cosmos2b:kcont", "c2:cosmos2b:kvelc"]
+assert [t["name"] for t in LTX_JOBS["c3l1of2"]] == ["render:kcontl", "render:kturnl", "c2g:ltx2b:kcontl", "c2:ltx2b:kturnl"]
+assert job_repos("c3v1of4")[0] == ("Wan-AI/Wan2.1-VACE-1.3B-diffusers", None)
+s = sync_for("c3l2of2")
+assert match("data/renders/kcontl/kcontl_01_x4.0.mp4", s.PUSH_PATTERNS) and match("data/renders/kturnl/kturnl_cv_01_x30.mp4", s.PUSH_PATTERNS)
+assert match("results/c2g_kcontl_ltx2b_ltx_c3l2of2.csv", s.PUSH_PATTERNS) and not match("data/renders/kturnl/kturnl_cv_00_x0.mp4", s.PATTERNS)
 from pilot.score import scored
 p = Path("tests/_scored_tmp.json")
 for body, want in (({"measurable": False, "reason": "error: ValueError: x"}, False), ({"measurable": False, "reason": "lost"}, True)):

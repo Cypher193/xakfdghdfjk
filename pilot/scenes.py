@@ -102,11 +102,15 @@ def ramp_track(scene, obj, t):
 
 
 def object_track(scene, obj, t):
-    """Centre (x, z) in metres at times t. scene["vswitch"] = [t_s, k]: the velocity is multiplied by k at t_s (C2)."""
+    """Centre (x, z) in metres at times t. scene["vswitch"] = [t_s, k]: the velocity is multiplied by k at t_s (C2).
+    scene["vturn"] = [t_s, deg]: the velocity turns by deg at t_s, upward relative to the direction of travel
+    (180 = reversed), same speed; floor objects then glide in a straight line, balls stay ballistic (C2-turn)."""
     if obj["motion"] == "ramp":
         return ramp_track(scene, obj, t)
     t = np.asarray(t, float)
     floor = scene["floor_z"] + obj["size_m"] / 2
+    if "vturn" in scene:
+        return _turned_track(scene, obj, t, floor)
     ts, k = scene.get("vswitch", (math.inf, 1.0))
     x = obj["x0"] + obj["vx"] * (np.minimum(t, ts) + k * np.maximum(t - ts, 0.0))
     if obj["motion"] == "floor":
@@ -116,11 +120,36 @@ def object_track(scene, obj, t):
     segs, _ = vertical_segments(obj["z0"], obj["vz0"], scene["gravity"], obj["e"], floor, scene["duration_s"])
     if ts == math.inf:
         return x, eval_segments(segs, t)
-    assert len(scene["gravity"]) == 1, "vswitch restarts the vertical motion under one gravity"
-    s = next(s for s in segs if s[0] <= ts <= s[1])
-    z1, vz1 = eval_segments([s], ts)[0], s[3] - s[4] * (ts - s[0])
+    z1, vz1 = _vertical_state(scene, segs, ts)
     late, _ = vertical_segments(z1, k * vz1, scene["gravity"], obj["e"], floor, scene["duration_s"] - ts)
     return x, np.where(t < ts, eval_segments(segs, t), eval_segments(late, t - ts))
+
+
+def _vertical_state(scene, segs, ts):
+    assert len(scene["gravity"]) == 1, "a switch restarts the vertical motion under one gravity"
+    s = next(s for s in segs if s[0] <= ts <= s[1])
+    return eval_segments([s], ts)[0], s[3] - s[4] * (ts - s[0])
+
+
+def _turned_track(scene, obj, t, floor):
+    assert "t_c" not in obj
+    ts, deg = scene["vturn"]
+    plain = {f: v for f, v in scene.items() if f != "vturn"}
+    x, z = object_track(plain, obj, t)
+    (xs,), (zs,) = object_track(plain, obj, [ts])
+    vz = 0.0
+    if obj["motion"] != "floor":
+        segs, _ = vertical_segments(obj["z0"], obj["vz0"], scene["gravity"], obj["e"], floor, scene["duration_s"])
+        vz = _vertical_state(scene, segs, ts)[1]
+    phi = math.radians(deg) * math.copysign(1.0, obj["vx"])          # counter-clockwise turns a rightward mover up
+    vx2, vz2 = obj["vx"] * math.cos(phi) - vz * math.sin(phi), obj["vx"] * math.sin(phi) + vz * math.cos(phi)
+    late = np.maximum(t - ts, 0.0)
+    if obj["motion"] == "floor":
+        z2 = zs + vz2 * late
+    else:
+        segs, _ = vertical_segments(zs, vz2, scene["gravity"], obj["e"], floor, scene["duration_s"] - ts)
+        z2 = eval_segments(segs, late)
+    return np.where(t < ts, x, xs + vx2 * late), np.where(t < ts, z, z2)
 
 
 # ---------------------------------------------------------------- sampling
@@ -377,28 +406,52 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
             c = finalise(c, cam, cfg, rng)
             c["env_seed"] = env
             out["kcont"].append(c)
-    # C2 (2026-11-03): every kmain scene with its velocity scaled from the end of a model's input window on, no new draws
+    # C2 (2026-11-03): every kmain scene with its velocity scaled from the end of a model's input window on, no new draws.
+    # 2026-11-04: VACE's window (kvelv), the same scenes turned instead of scaled (kturn*), kcont at LTX's window (kcontl).
     for name, model in VEL_SETS.items():
-        out[name] = velocity_copies(out["kmain"], name, cfg["models"][model], cam, cfg)
+        out[name] = switch_copies(out["kmain"], name, cfg["models"][model], cam, cfg, "vswitch", "v_scale", V_SCALES)
+    for name, model in TURN_SETS.items():
+        c = switch_copies(out["kmain"], name, cfg["models"][model], cam, cfg, "vturn", "turn_deg", TURN_DEGS)
+        # a ball falls at ~3 m/s at the turn: 30 degrees flings it sideways out of frame (in frame 0.31), so cv only
+        out[name] = [s for s in c if not (s["family"] != "cv" and s["gt"]["turn_deg"] == 30)]
+    ltx = cfg["models"]["ltx2b"]
+    t_l = ltx["cond_frames"] / ltx["fps"]
+    out["kcontl"] = []
+    for s in out["kcont"]:
+        c = copy.deepcopy(s)
+        c.update(id=s["id"].replace("kcont", "kcontl"), gravity=[(0.0, G), (t_l, c["gravity"][1][1])])
+        c["gt"] = dict(c["gt"], t_switch=t_l, in_frame=_in_frame(c, ltx, cam))
+        set_tracks(c, cam, cfg, strict=False)
+        out["kcontl"].append(c)
     return out
 
 
-VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b"}      # C2 scene set: model whose input window and clip length it uses
+VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b", "kvelv": "vace13"}   # C2 scene set: model whose window and clip it uses
 V_SCALES = (0.5, 0.8, 1.0, 1.25, 2.0)
+TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b"}
+TURN_DEGS = (0, 30, 180)
 
 
-def velocity_copies(main, name, mcfg, cam, cfg):
-    """Copies of the kmain scenes, same look; ids kvelc_cv_00_x0.5. Fast copies may leave the frame (gt in_frame)."""
-    t_switch, t = mcfg["cond_frames"] / mcfg["fps"], np.arange(mcfg["num_frames"]) / mcfg["fps"]
+def _in_frame(scene, mcfg, cam):
+    """Share of the model's clip frames with the object centre in frame."""
+    u, v = project(cam, *object_track(scene, scene["objects"][0], np.arange(mcfg["num_frames"]) / mcfg["fps"]))
+    return float(np.mean((u > 0) & (u < cam["width"]) & (v > 0) & (v < cam["height"])))
+
+
+def switch_copies(main, name, mcfg, cam, cfg, key, gt_key, values):
+    """Copies of the kmain scenes, same look, changed from the end of the model's input window on; ids kvelc_cv_00_x0.5.
+    key "vswitch" scales the velocity, "vturn" turns it (object_track). Copies may leave the frame (gt in_frame)."""
+    t_switch = mcfg["cond_frames"] / mcfg["fps"]
     out = []
     for m in main:
-        for k in V_SCALES:
+        for k in values:
             c = {f: v for f, v in copy.deepcopy(m).items() if f not in ("b2nl", "b2num")}
-            c.update(id=m["id"].replace("kmain", name) + f"_x{k}", vswitch=[t_switch, k])
-            c["gt"] = dict(m["gt"], v_scale=k, t_switch=t_switch)
+            c.update({"id": m["id"].replace("kmain", name) + f"_x{k}", key: [t_switch, k]})
+            if key == "vturn":        # centred at the turn: a reversed copy has as much room as the true one
+                c["objects"][0]["x0"] = -c["objects"][0]["vx"] * t_switch
+            c["gt"] = dict(m["gt"], **{gt_key: k}, t_switch=t_switch)
             set_tracks(c, cam, cfg, strict=False)
-            u, v = project(cam, *object_track(c, c["objects"][0], t))
-            c["gt"]["in_frame"] = float(np.mean((u > 0) & (u < cam["width"]) & (v > 0) & (v < cam["height"])))
+            c["gt"]["in_frame"] = _in_frame(c, mcfg, cam)
             out.append(c)
     return out
 

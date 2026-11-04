@@ -82,3 +82,14 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - Per base: the implied multiplier (minimum of a parabola in ln k), its symmetric MRA against 1, and the share of altered copies whose loss is higher than the true copy's (`pref_acc`, chance 0.5).
 - **What is not changed:** gates, thresholds and the scenes of every other experiment. Every earlier scene file is byte-identical (`tests/test_round3.py`, checked by regenerating them).
 - **Approved by:** the user approved running C2 and C2-g on 2026-11-03. The scene choice and loss settings are mine.
+
+## D6 — C2 follow-ups: VACE C2, C2-turn, LTX C2-g (2026-11-04, after seeing the C2 results)
+
+- **Why:** C2 on Cosmos and LTX rejects faster copies and accepts slower ones, and the Cosmos C2-g minimum sits at 2-4 g. One explanation is a preference for less motion. These runs test that and add the third model.
+- **Change:**
+  - VACE C2 (`kvelv`): the kmain scenes with the velocity scaled from the end of VACE's window (17 frames, 1.06 s). VACE's own conditioning noises every latent frame and gives the window through the VACE context (window frames, then grey, mask 0 on the window), so the loss does too; it still counts only the continuation frames.
+  - C2-turn (`kturnc` Cosmos, `kturnl` LTX): at the end of the window the velocity turns by 180 degrees (reversed) or 30 degrees upward, at the same speed. Floor objects then glide in a straight line and balls stay ballistic. The object starts so that it is at the frame centre at the turn, so the reversed copy has as much room as the true one; this moves the start away from the kmain scenes, so the true copy (0 degrees) is rendered again. A 30-degree turn throws a falling ball sideways out of frame (31% of frames in frame for Cosmos), so bounces have only the 0 and 180 degree copies. Reading: if the likelihood prefers the true copy over a reversed copy with the same speed, it is not only a preference for less motion.
+  - LTX C2-g (`kcontl`): the 70 kcont scenes with the gravity switch moved to the end of LTX's window (1.04 s), 16 noise levels x 4 draws as for Cosmos.
+  - The implied multiplier and its MRA are not defined for the turn sets; only `pref_acc` is reported.
+- **What is not changed:** every earlier scene file is byte-identical (regenerated and compared), and the loss settings of D5.
+- **Approved by:** the user approved runs A (LTX C2-g), B (motion-matched C2) and C (VACE C2) on 2026-11-04. The 30-degree-for-cv-only rule and the centring are mine.
