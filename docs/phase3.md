@@ -305,7 +305,7 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 
 - **V-JEPA 2** (`pilot/vjepa.py`, job `vjepa2`, one RTX 4090, about $3-5): ViT-L and ViT-g on existing renders. C1 acts on the B1 / B5 input windows and the usual probes; C2 / C2-g surprise on kvelv, kturnl and kcontl (`results/c2{,g}_{set}_{model}_ltx_vjepa2.csv`, same layout as the generators' C2); C3 gamma per layer (`results/c3_{model}_gamma_ltx_vjepa2.csv`). No pixels, so no show score and no gap.
 - **Cosmos-14B** (jobs `cosmos14bgKof6`, 48 GB cards, about 1,100 s per clip on an L40S): B1 100 kmain x 2 seeds and B5 90 kgrav x 2 seeds, scored with SAM2 and CoTracker3, then `cosmos14bprobe` (probes + nested gap with `--v2`). About $92. H6: gap(14B) - gap(2B) on the same scenes, scene-bootstrap CI inside +-0.05.
-- **B2-nl on 14B** (jobs `cosmos14btKof3`, seed 0, 100 clips, about $22): launched only after `cosmos14bg*` finish and only if the credit left is at least its cost plus $10.
+- **B2-nl on 14B** (jobs `cosmos14btKof3`, seed 0, 100 clips, about $22-35): first gated to run after `cosmos14bg*`; the user then approved running it in parallel (2026-11-05), since the projected total (about $130 of $149.96) keeps the $10 reserve. Shards t1 and t2 on RTX PRO 6000 cards, t3 when a card frees up; stopped if a clip costs more than $0.35.
 - **Deferred (user, 2026-11-05): B2-nl seed 1 on Cosmos-14B,** about $22, when there is more budget.
 
 ### V-JEPA 2 results (2026-11-05, jobs `vjepa2` and `vjepa2s`, both verified on HF, about $0.90)
