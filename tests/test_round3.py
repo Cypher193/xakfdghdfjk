@@ -180,13 +180,17 @@ calls, logged = [], []
 finalize.log, finalize.time.sleep = logged.append, lambda s: None
 os.environ.update(RUNPOD_POD_ID="podx", RUNPOD_API_KEY="secret-pod-key")
 os.environ.pop("CONTAINER_API_KEY", None)
-resp = iter([types.SimpleNamespace(ok=False, status_code=500, text="busy"), types.SimpleNamespace(ok=True, status_code=200, text="")])
+resp = iter([types.SimpleNamespace(ok=False, status_code=500, text="busy", json=lambda: {}),
+             types.SimpleNamespace(ok=True, status_code=200, text="", json=lambda: {"errors": [{"message": "x"}]}),
+             types.SimpleNamespace(ok=True, status_code=200, text="", json=lambda: {"data": {"podTerminate": None}})])
 import requests
-requests.delete = lambda url, **kw: (calls.append(("DELETE", url)), next(resp))[1]
-requests.post = lambda url, **kw: (calls.append(("POST", url)), types.SimpleNamespace(ok=True, status_code=200, text=""))[1]
-assert finalize.stop_pod(True) is True and calls == [("DELETE", "https://rest.runpod.io/v1/pods/podx")] * 2
+requests.post = lambda url, json=None, **kw: (calls.append((url, json["query"])), next(resp))[1]
+assert finalize.stop_pod(True) is True and len(calls) == 3
+assert calls[0] == ("https://api.runpod.io/graphql", 'mutation { podTerminate(input: {podId: "podx"})  }')
 calls.clear()
-assert finalize.stop_pod(False) is True and calls == [("POST", "https://rest.runpod.io/v1/pods/podx/stop")]
+requests.post = lambda url, json=None, **kw: (calls.append(json["query"]),
+                                              types.SimpleNamespace(ok=True, status_code=200, text="", json=lambda: {"data": {}}))[1]
+assert finalize.stop_pod(False) is True and calls == ['mutation { podStop(input: {podId: "podx"}) { id } }']
 assert not any("secret-pod-key" in m for m in logged)
 del os.environ["RUNPOD_POD_ID"], os.environ["RUNPOD_API_KEY"]
 from pilot.score import scored

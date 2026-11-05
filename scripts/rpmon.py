@@ -68,8 +68,9 @@ def runpod(files):
         elif now() > dt.datetime.fromisoformat(cap["terminate_after"]):
             why = f"hard cap {cap['terminate_after']} passed"
         if why:
-            r = requests.delete(f"{API}/pods/{p['id']}", headers=hdr, timeout=60)
-            log(f"runpod terminate {p['id']} {p.get('name')} ({why}): HTTP {r.status_code}")
+            r = requests.post("https://api.runpod.io/graphql", headers=hdr, timeout=60,   # GraphQL: proven on the smoke pod
+                              json={"query": f'mutation {{ podTerminate(input: {{podId: "{p["id"]}"}}) }}'})
+            log(f"runpod terminate {p['id']} {p.get('name')} ({why}): HTTP {r.status_code} {r.text[:80]}")
     return [dict(id=p["id"], name=p.get("name"), status=p.get("desiredStatus"), cost=p.get("costPerHr")) for p in ours]
 
 

@@ -88,18 +88,20 @@ def verify():
 
 def runpod_stop(verified):
     """RunPod (scripts/runpod_launch.py pods, no /start.sh): terminate the pod with the pod-scoped RUNPOD_API_KEY RunPod
-    injects when HF has every file, else only stop it (its disk, and the data, are kept). Success is the HTTP status, not
-    the absence of an exception; 6 tries over 12 min. The vast monitor (scripts/rpmon.py) is the backstop."""
+    injects when HF has every file, else only stop it (its disk, and the data, are kept). GraphQL podTerminate /
+    podStop: the pod key gets 403 on the REST DELETE (smoke pod, 2026-11-05). Success is HTTP 200 with no GraphQL
+    errors, not the absence of an exception; 6 tries over 12 min. The vast monitor (scripts/rpmon.py) is the backstop."""
     import requests
     pid = os.environ["RUNPOD_POD_ID"]
-    url = f"https://rest.runpod.io/v1/pods/{pid}" + ("" if verified else "/stop")
+    op = "podTerminate" if verified else "podStop"
+    q = {"query": f'mutation {{ {op}(input: {{podId: "{pid}"}}) {"{ id }" if op == "podStop" else ""} }}'}
     hdr = {"Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}"}
     for attempt in range(6):
-        log(f"stopping pod: {'DELETE' if verified else 'POST'} /v1/pods/{pid}{'' if verified else '/stop'} (attempt {attempt + 1})")
+        log(f"stopping pod: {op} {pid} (attempt {attempt + 1})")
         try:
-            r = requests.delete(url, headers=hdr, timeout=60) if verified else requests.post(url, headers=hdr, timeout=60)
+            r = requests.post("https://api.runpod.io/graphql", json=q, headers=hdr, timeout=60)
             log(f"runpod HTTP {r.status_code}: {r.text[:200]}")
-            if r.ok:
+            if r.ok and "errors" not in r.json():
                 return True
         except Exception as e:
             log(f"runpod request failed: {type(e).__name__}: {e}")

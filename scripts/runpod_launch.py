@@ -96,7 +96,8 @@ def terminate_one(pid, why):
         return
     if pid not in mine or not str(p.get("name", "")).startswith("kvs-"):
         sys.exit(f"{pid} ({p.get('name')}) was not created by this launcher: refusing")
-    r = requests.delete(f"{API}/pods/{pid}", headers=hdr(), timeout=60)
+    r = requests.post("https://api.runpod.io/graphql", headers=hdr(), timeout=60,      # GraphQL: proven on the smoke pod
+                      json={"query": f'mutation {{ podTerminate(input: {{podId: "{pid}"}}) }}'})
     print(f"terminate {pid} {p.get('name')} ({why}): HTTP {r.status_code} {r.text[:120]}")
 
 
