@@ -160,12 +160,10 @@ def rpmon(a):
     keyfile = Path.home() / ".runpod_monitor_key"
     if not a.dry_run and not keyfile.exists():
         sys.exit(f"{keyfile} missing: create a separate RunPod key for the monitor and save it there")
-    offers = []
+    offers = []      # CPU-only asks are listed but often refused ("no_such_ask"), so the cheapest GPU boxes follow
     for q in ("rentable=true reliability>0.98 inet_down>=50 disk_space>=10 num_gpus=0",
               "rentable=true verified=true reliability>0.98 inet_down>=50 disk_space>=10 num_gpus=1"):
-        offers = (vast("search", "offers", q, "-o", "dph_total") or [])[:3]
-        if offers:
-            break
+        offers += (vast("search", "offers", q, "-o", "dph_total") or [])[:3]
     for o in offers:
         print(f"offer {o['id']}  {o.get('gpu_name') or 'CPU'}  ${o['dph_total']:.3f}/h  {o.get('geolocation')}")
         if a.dry_run:
@@ -175,7 +173,7 @@ def rpmon(a):
         if (r or {}).get("new_contract"):
             print(f"kvs-rpmon: created #{r['new_contract']} on offer {o['id']} (${o['dph_total']:.3f}/h)")
             return
-        print(f"offer {o['id']}: create failed")
+        print(f"offer {o['id']}: create failed: {(r or {}).get('msg', r)}")
     sys.exit("no monitor instance")
 
 
