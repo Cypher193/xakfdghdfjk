@@ -307,6 +307,29 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Cosmos-14B** (jobs `cosmos14bgKof6`, 48 GB cards, about 1,100 s per clip on an L40S): B1 100 kmain x 2 seeds and B5 90 kgrav x 2 seeds, scored with SAM2 and CoTracker3, then `cosmos14bprobe` (probes + nested gap with `--v2`). About $92. H6: gap(14B) - gap(2B) on the same scenes, scene-bootstrap CI inside +-0.05.
 - **B2-nl on 14B** (jobs `cosmos14btKof3`, seed 0, 100 clips, about $22): launched only after `cosmos14bg*` finish and only if the credit left is at least its cost plus $10.
 - **Deferred (user, 2026-11-05): B2-nl seed 1 on Cosmos-14B,** about $22, when there is more budget.
+
+### V-JEPA 2 results (2026-11-05, jobs `vjepa2` and `vjepa2s`, both verified on HF, about $0.90)
+
+- **C1, know** (best block, object tokens, margin over the patch-embedding baseline and the control task):
+
+| | speed | gravity | restitution |
+|---|---|---|---|
+| ViT-L | 0.738 (+0.097, layer 23) | 0.828 (+0.137, layer 18) | 0.960 (none) |
+| ViT-g | 0.803 (+0.164, layer 37) | 0.783 (+0.091, layer 33) | 0.963 (none) |
+
+  A predictor that never makes pixels encodes speed and gravity about as well as the generators (speed margins 0.13-0.19, gravity LTX +0.07 and Cosmos +0.10). Its predicted future tokens, pooled over the frame, carry neither (below the control task). Pooled over all tokens, the encoder carries little: speed margin below 0.
+- **C3, gamma per layer** (out-of-fold probe on kgrav, no tracker involved): ViT-L 0.79 at layer 18, falling to 0.61 at the last layer; ViT-g rising to 0.81 at the last layer (object tokens). H3 asks for a drop of at least 0.2 by the last block: ViT-L drops 0.18, ViT-g not at all.
+- **C2 / C2-g, surprise** (pref_acc, chance 0.5; frame stride 1 is the render rate, 16 fps for kvelv and 24 fps for the others):
+
+| set | ViT-L stride 1 / 2 / 3 / 4 | ViT-g stride 1 / 2 / 3 / 4 |
+|---|---|---|
+| kvelv (speed x 0.5-2) | 0.515 / 0.515 / 0.432 / 0.393 | 0.527 / 0.500 / 0.458 / 0.438 |
+| kturnl (same speed, turned) | 0.465 / 0.490 / 0.565 / 0.505 | 0.465 / 0.550 / 0.570 / 0.620 [0.53, 0.71] |
+| kcontl (gravity, 10 bases) | 0.300 / 0.450 / 0.400 / 0.450 | 0.567 / 0.500 / 0.450 / 0.450 |
+
+  - Surprise does not tell the true speed or gravity from the altered copies at any stride. On kturnl it flags the 30-degree turn on constant-velocity scenes (0.66-0.82: an object rising off the floor) but not a reversal (cv 0.28-0.54, bounce 0.42-0.62). Only ViT-g at stride 4 clears chance overall.
+  - At the render rate the reversed copy had the lowest surprise in 54-55 of 100 bases; with sparser frames this moves back to chance, so it was not a physics preference.
+- **Reading:** V-JEPA 2 shows the know-without-use pattern more strongly than the generators. Its encoder reads speed and gravity, but its own prediction error barely depends on them, while the generators' likelihoods at least reject wrong directions. Caveats: frames are squashed to a square, 10 gravity bases only, and the context is 1 s (V-JEPA 2's own intuitive-physics evaluation uses longer clips).
 - Order: `cosmos14bg1of6` first as the smoke test (one clip with activations, VRAM and time per clip), with `vjepa2` in parallel; then the other five 14B pods.
 
 ## Deferred (user, 2026-10-26)
