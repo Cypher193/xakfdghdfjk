@@ -297,7 +297,7 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **C. VACE C2 (`kvelv`, 100 bases):** pref_acc 0.517 [0.487, 0.547]; slower copies 0.07 (k = 0.5) and 0.12 (0.8), faster 0.89 (1.25) and 0.99 (2); cv 0.545, bounce 0.49; in-frame only 0.480. Lowest loss at k = 0.5 in 80 bases, 0.8 in 15, the true speed in 4. k_implied median 0.500, symmetric MRA 0.333. VACE has the strongest slow-motion preference of the three.
 - **Reading:**
   - A plain preference for less motion does not explain C2 by itself. At matched speed, both likelihoods reject wrong directions on constant-velocity scenes every time. Cosmos also rejects reversed bounces (0.72); LTX does not (0.48).
-  - The speed bias is real and grows with output quality: true speed has the lowest loss in 29 (Cosmos), 47 (LTX) and 4 (VACE) of 100 bases. VACE, the model whose videos show the most physics (largest show readouts), has a likelihood that prefers half speed almost always.
+  - The speed bias is real in all three models: true speed has the lowest loss in 29 (Cosmos), 47 (LTX) and 4 (VACE) of 100 bases. VACE's likelihood prefers half speed almost always.
   - Both gravity tests favour stronger than true gravity (Cosmos 2.65 g, LTX 1.82 g).
   - So the likelihood holds direction and continuity, but not the size of speed or gravity; the probes read g well from the same models. Speed and gravity are known but not shown by the likelihood.
 
