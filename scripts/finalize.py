@@ -18,6 +18,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,10 +95,17 @@ def stop_pod(verified=False):
         log(f"stopping instance: vastai {' '.join(cmd)}")
         if not shutil.which("vastai"):                # setup died before installing requirements.txt
             subprocess.run([PY, "-m", "pip", "install", "-q", "vastai"])
-        r = subprocess.run(["vastai", *cmd], capture_output=True, text=True,   # key via env: not in argv or the log
-                           env=dict(os.environ, VAST_API_KEY=os.environ["CONTAINER_API_KEY"]))
-        log(f"vastai rc={r.returncode}: {(r.stdout + r.stderr).strip()[-300:]}")
-        return r.returncode == 0
+        # vastai exits 0 even on "Failed with error 401: Unable to authorize instance API key" (some hosts, 2026-11-04:
+        # one pod billed idle for 19 h), so read the output, and retry: the 401 has cleared on retry elsewhere
+        for attempt in range(6):
+            r = subprocess.run(["vastai", *cmd], capture_output=True, text=True,   # key via env: not in argv or the log
+                               env=dict(os.environ, VAST_API_KEY=os.environ["CONTAINER_API_KEY"]))
+            out = (r.stdout + r.stderr).strip()
+            log(f"vastai rc={r.returncode} (attempt {attempt + 1}): {out[-300:]}")
+            if r.returncode == 0 and not re.search(r"fail|error", out, re.I):
+                return True
+            time.sleep(120)
+        return False
     for _ in range(6):         # some hosts run nested start.sh processes: a second one starts a new sleep, so repeat
         start = subprocess.run(["pgrep", "-f", "/start.sh"], capture_output=True, text=True).stdout.split()
         if not start:

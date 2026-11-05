@@ -281,6 +281,26 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Jobs (`run_pilot.C3_PODS`):** `c3vKof4` (VACE, RTX 4090), `c3cKof3` (Cosmos, RTX 4090), `c3lKof2` (LTX, RTX 3090: kcontl and kturnl). Each renders its own bases first. Results `results/{c2,c2g}_{set}_{model}_ltx_{job}.csv`.
 - **Cost estimate:** VACE about $9, Cosmos about $5, LTX about $1.5, from about 125 s per VACE copy (3.9 s per pass on a 4090 in generation), 134 s per Cosmos copy and 25 s per LTX copy.
 
+### Follow-up results (2026-11-05, all 9 pods verified on HF; `python scripts/c2_report.py`)
+
+- **Cost:** $27.93, the whole remaining credit (balance now -$0.03). About $10-11 of it was waste: pod `c3v3of4` (Japan, machine 103782) verified its data at 13:43 UTC, then `vastai destroy` from the pod failed with `401: Unable to authorize instance API key`, which the CLI reports with exit code 0. The pod sat idle until the credit ran out. Fixed in `finalize.stop_pod` (reads the output and retries 6 times over 12 min); the host is in `BAD_MACHINES`. A pod still listed after its `final_check` must be destroyed from the laptop.
+- **A. LTX C2-g (`kcontl`, 10 bases, 16 x 4 passes):** pref_acc 0.583 [0.40, 0.77]; win share by gravity multiplier 0.25 0.8, 0.5 0.7, 0.75 0.7, 1.5 0.4, 2 0.5, 4 0.4. Lowest loss at 1.5 g in 4 bases, 2 g in 2, the true g in 2. k_implied median 1.82, symmetric MRA 0.344. Like Cosmos (2.65), LTX favours stronger gravity, less strongly.
+- **B. C2-turn (100 bases per model, same speed after the turn):**
+
+| | Cosmos (kturnc) | LTX (kturnl) |
+|---|---|---|
+| pref_acc [95% CI] | 0.860 [0.79, 0.93] | 0.735 [0.645, 0.815] |
+| cv reversed / cv turned 30 degrees up | 1.00 / 1.00 | 1.00 / 0.98 |
+| bounce reversed | 0.72 | 0.48 |
+| true copy has the lowest loss | 86 | 73 |
+
+- **C. VACE C2 (`kvelv`, 100 bases):** pref_acc 0.517 [0.487, 0.547]; slower copies 0.07 (k = 0.5) and 0.12 (0.8), faster 0.89 (1.25) and 0.99 (2); cv 0.545, bounce 0.49; in-frame only 0.480. Lowest loss at k = 0.5 in 80 bases, 0.8 in 15, the true speed in 4. k_implied median 0.500, symmetric MRA 0.333. VACE has the strongest slow-motion preference of the three.
+- **Reading:**
+  - A plain preference for less motion does not explain C2 by itself. At matched speed, both likelihoods reject wrong directions on constant-velocity scenes every time. Cosmos also rejects reversed bounces (0.72); LTX does not (0.48).
+  - The speed bias is real and grows with output quality: true speed has the lowest loss in 29 (Cosmos), 47 (LTX) and 4 (VACE) of 100 bases. VACE, the model whose videos show the most physics (largest show readouts), has a likelihood that prefers half speed almost always.
+  - Both gravity tests favour stronger than true gravity (Cosmos 2.65 g, LTX 1.82 g).
+  - So the likelihood holds direction and continuity, but not the size of speed or gravity; the probes read g well from the same models. Speed and gravity are known but not shown by the likelihood.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

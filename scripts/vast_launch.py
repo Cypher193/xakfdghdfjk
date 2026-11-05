@@ -37,7 +37,8 @@ ONSTART = ("pip install -q vastai; python -c \"import urllib.request as u;u.urlr
 # hosts that failed in phases 1/2: image pulls that never finish, the flaky 137.175.22.196 network;
 # 33953: 3090 stuck at 450 MHz (225 s/clip vs ~60), C9b 2026-10-26
 BAD_MACHINES = {153150, 113571, 84216, 151184, 52126, 143568, 147283, 138174, 33953,
-                146456, 147859, 28421, 31389, 36331, 60701, 136786, 95005, 31014}   # 2026-10-29: never loaded; 31014 DNS
+                146456, 147859, 28421, 31389, 36331, 60701, 136786, 95005, 31014,   # 2026-10-29: never loaded; 31014 DNS
+                35777, 152387, 103782}   # 2026-11-03/04: SM stuck at 210 MHz; never started; self-destroy 401
 TEMPLATE = "d1b2fe045f890349b734850a9d312072"
 POD_SCRIPT = "scripts/ltx_pod.sh"      # swap for scripts/full_pod.sh later
 REPO = "https://github.com/Cypher193/xakfdghdfjk.git"
