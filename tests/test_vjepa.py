@@ -39,6 +39,9 @@ df, summ = run_surprise(vj, "data/scenes/kturnl", None, out, 24, shard="1/25", f
 n = len(df)
 df, summ = run_surprise(vj, "data/scenes/kturnl", None, out, 24, shard="1/25", frames_fn=frames)
 assert len(df) == n and df.true.sum() == len(summ) == 4 and np.isfinite(df.loss).all() and summ.k_implied.isna().all()
+out3 = tmp / "c2_kturnl_tiny_s3.csv"
+df3, _ = run_surprise(vj, "data/scenes/kturnl", None, out3, 24, shard="1/25", frames_fn=frames, stride=3)
+assert len(df3) == n and (df3.stride == 3).all() and not np.allclose(df3.loss, df.loss)
 
 # acts.npz written as pilot.generate does: pilot.probe loads them
 for i, spec in enumerate(sorted(Path("data/scenes/kmain").glob("*.json"))[:12]):

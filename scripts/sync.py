@@ -131,6 +131,9 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
                                                 for f in ("acts.npz", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"results/p6_{m}*", f"results/c3_{m}_*"]
+    if j == "vjepa2s":                    # surprise at frame strides 2-4: the C2 renders in, its own results out
+        PATTERNS = ["data/scenes/**"] + [f"data/renders/{s}/*.mp4" for s in ("kvelv", "kturnl", "kcontl")] + mine
+        PUSH_PATTERNS = mine
     if j == "vjepa2":                     # input windows (C1) and the C2 renders in; acts, probes, surprise out
         from run_pilot import VJEPA_MODELS
         PATTERNS = ["data/scenes/**"] + [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]             + [f"data/renders/{s}/*.mp4" for s in ("kvelv", "kturnl", "kcontl")] + mine + [f"{r}/**" for r in LTX_RUNS[j]]

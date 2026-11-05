@@ -469,7 +469,12 @@ VJEPA_JOB = [cmd(f"acts:{m}:{e}", ["-m", "pilot.vjepa", "acts", "--model", m, "-
        for m in VJEPA_MODELS for s in ("kvelv", "kturnl", "kcontl")]     + [st for m in VJEPA_MODELS for st in _probe_steps(m)]     + [cmd(f"gamma:{m}", ["-m", "pilot.vjepa", "gamma", "--model", m, "--out", f"results/c3_{m}_gamma_ltx_vjepa2.csv"], 900)
        for m in VJEPA_MODELS]
 C2_JOBS["vjepa2"] = VJEPA_JOB
+# frame-stride check (2026-11-05): at 16-24 fps the reversed copy scored least surprising; pretraining samples sparsely
+C2_JOBS["vjepa2s"] = [cmd(f"surprise:{m}:{s}:s{k}", ["-m", "pilot.vjepa", "surprise", "--model", m, "--set", s, "--stride", str(k),
+                          "--out", f"results/{'c2g' if s.startswith('kcont') else 'c2'}_{s}_{m}_s{k}_ltx_vjepa2s.csv"], 1200)
+                      for k in (2, 3, 4) for m in VJEPA_MODELS for s in ("kvelv", "kturnl", "kcontl")]
 LTX_RUNS["vjepa2"] = [f"runs/{e}/{m}" for m in VJEPA_MODELS for e in ("b1", "b5")]
+LTX_RUNS["vjepa2s"] = []
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
     | {"stats2v2": STATS2V2} | C2_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))

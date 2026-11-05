@@ -110,7 +110,9 @@ def write_acts(vj, name, exp, cfg):
         print(f"acts {exp}/{spec['id']}", flush=True)
 
 
-def run_surprise(vj, scene_root, render_root, out, n_ctx, shard=None, frames_fn=None):
+def run_surprise(vj, scene_root, render_root, out, n_ctx, shard=None, frames_fn=None, stride=1):
+    """stride: keep every stride-th frame (pretraining samples frames sparsely; at 16-24 fps a step moves little).
+    The context keeps the strided frames before the switch, both counts rounded down to whole tubelets."""
     from pilot.likelihood import bases, is_true, mult, summarize
     from pilot.track import load_video
     out = Path(out)
@@ -121,9 +123,11 @@ def run_surprise(vj, scene_root, render_root, out, n_ctx, shard=None, frames_fn=
         rows = []
         for spec in variants:
             frames = frames_fn(spec) if frames_fn else list(load_video(Path(render_root) / f"{spec['id']}.mp4")[0])
-            assert len(frames) >= N_FRAMES, (spec["id"], len(frames))
-            rows.append(dict(base=base, id=spec["id"], k=mult(spec), true=is_true(spec),
-                             in_frame=spec["gt"].get("in_frame", 1.0), loss=vj.surprise(frames[:N_FRAMES], n_ctx)))
+            frames = frames[::stride]
+            n, c = min(N_FRAMES, len(frames)) // vj.tub * vj.tub, -(-n_ctx // stride) // vj.tub * vj.tub
+            assert stride > 1 or n == N_FRAMES, (spec["id"], len(frames))
+            rows.append(dict(base=base, id=spec["id"], k=mult(spec), true=is_true(spec), stride=stride,
+                             in_frame=spec["gt"].get("in_frame", 1.0), loss=vj.surprise(frames[:n], c)))
             print(f"surprise {spec['id']}: {rows[-1]['loss']:.5f}", flush=True)
         pd.DataFrame(rows).to_csv(out, mode="a", header=not out.exists(), index=False)
     df = pd.read_csv(out)
@@ -152,6 +156,7 @@ def main():
     ap.add_argument("--exp", help="acts: b1 or b5")
     ap.add_argument("--set", choices=sorted(SURPRISE_SETS))
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--stride", type=int, default=1, help="surprise: every stride-th frame")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
@@ -164,7 +169,8 @@ def main():
         return
     data = Path(cfg["paths"]["data"])
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    df, summ = run_surprise(vj, data / "scenes" / a.set, data / "renders" / a.set, a.out, SURPRISE_SETS[a.set])
+    df, summ = run_surprise(vj, data / "scenes" / a.set, data / "renders" / a.set, a.out, SURPRISE_SETS[a.set],
+                            stride=a.stride)
     print(f"{len(summ)} bases: pref_acc {summ.pref_acc.mean():.3f}, k_implied median {summ.k_implied.median():.3f}")
 
 
