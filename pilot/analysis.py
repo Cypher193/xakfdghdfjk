@@ -411,8 +411,12 @@ def gates():
     short = name.split("-")[0]
     gp = f"{OUT}gap.csv"
     have_p6 = all(Path(f"results/p6_{M}_{t}_obj.csv").exists() for t in TARGET_EXPS)
-    gd = pd.read_csv(gp) if Path(gp).exists() else gap() if have_p6 else None
-    y = __import__("yaml").safe_load(Path("configs/gates.yaml").read_text(encoding="utf-8"))
+    try:                                         # gap() needs the activations: a pod without them gets G8 "not evaluated"
+        gd = pd.read_csv(gp) if Path(gp).exists() else gap() if have_p6 else None
+    except (KeyError, FileNotFoundError) as e:
+        print(f"gates: no gap estimate ({type(e).__name__}: {e})")
+        gd = None
+    y =__import__("yaml").safe_load(Path("configs/gates.yaml").read_text(encoding="utf-8"))
     rows = []
     add = lambda gate, value, thr, verdict, src: rows.append((gate, value, thr, verdict, src))
 
