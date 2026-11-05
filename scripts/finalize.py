@@ -86,6 +86,27 @@ def verify():
     return dict(local=len(loc), remote=len(remote), missing=len(missing), missing_sample=missing[:20])
 
 
+def runpod_stop(verified):
+    """RunPod (scripts/runpod_launch.py pods, no /start.sh): terminate the pod with the pod-scoped RUNPOD_API_KEY RunPod
+    injects when HF has every file, else only stop it (its disk, and the data, are kept). Success is the HTTP status, not
+    the absence of an exception; 6 tries over 12 min. The vast monitor (scripts/rpmon.py) is the backstop."""
+    import requests
+    pid = os.environ["RUNPOD_POD_ID"]
+    url = f"https://rest.runpod.io/v1/pods/{pid}" + ("" if verified else "/stop")
+    hdr = {"Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}"}
+    for attempt in range(6):
+        log(f"stopping pod: {'DELETE' if verified else 'POST'} /v1/pods/{pid}{'' if verified else '/stop'} (attempt {attempt + 1})")
+        try:
+            r = requests.delete(url, headers=hdr, timeout=60) if verified else requests.post(url, headers=hdr, timeout=60)
+            log(f"runpod HTTP {r.status_code}: {r.text[:200]}")
+            if r.ok:
+                return True
+        except Exception as e:
+            log(f"runpod request failed: {type(e).__name__}: {e}")
+        time.sleep(120)
+    return False
+
+
 def stop_pod(verified=False):
     """vast.ai: destroy the instance if every file is on HF, else stop it (its disk, and the data, are kept).
     RunPod: end /start.sh's final `sleep infinity`: start.sh exits, docker-init (PID 1) exits, the container stops."""
@@ -106,6 +127,8 @@ def stop_pod(verified=False):
                 return True
             time.sleep(120)
         return False
+    if os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY"):
+        return runpod_stop(verified)
     for _ in range(6):         # some hosts run nested start.sh processes: a second one starts a new sleep, so repeat
         start = subprocess.run(["pgrep", "-f", "/start.sh"], capture_output=True, text=True).stdout.split()
         if not start:

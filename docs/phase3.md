@@ -332,6 +332,13 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Reading:** V-JEPA 2 shows the know-without-use pattern more strongly than the generators. Its encoder reads speed and gravity, but its own prediction error barely depends on them, while the generators' likelihoods at least reject wrong directions. Caveats: frames are squashed to a square, 10 gravity bases only, and the context is 1 s (V-JEPA 2's own intuitive-physics evaluation uses longer clips).
 - Order: `cosmos14bg1of6` first as the smoke test (one clip with activations, VRAM and time per clip), with `vjepa2` in parallel; then the other five 14B pods.
 
+## Cosmos 3 Nano (H8) on the RunPod team account (2026-11-06, user approved)
+
+- **Why RunPod:** the vast credit is nearly spent; the user added a key for a new, well-funded RunPod team account.
+- **Jobs** (`run_pilot`): `cosmos3_nanosmoke` (2 B1 clips, both trackers, must end itself), then `cosmos3_nanogKof8` (B1 100 kmain x 2 seeds, B5 90 kgrav x 2 seeds), `cosmos3_nanotKof2` (B2-nl seed 0), `cosmos3_nanoprobe` (probes + nested gap). Measured on the timing clips: 248 s per clip on an RTX A6000, 31.3 GB peak, activations captured (`layers/obj`, 36 x 3 x 4096). About 480 clips, about $15-25 on A40s at $0.35/h.
+- **Pods** (`scripts/runpod_launch.py`): the image is unchanged; a start command sets up sshd, clones the repo and runs `scripts/ltx_pod.sh`. HF_TOKEN is the account's RunPod secret. The launcher only terminates pods named `kvs-*` that it created, and terminates a pod at once if it costs more than `--max-price`.
+- **Ending pods:** `finalize.runpod_stop` deletes the pod with RunPod's pod-scoped `RUNPOD_API_KEY` once HF has every file (else stops it), checking the HTTP status, 6 tries. Backstop: `scripts/rpmon.py` on the cheapest vast box (`vast_launch.py rpmon`, about $0.01/h) terminates kvs-* RunPod pods whose final check is verified or whose hard cap (budget + 3 h, in `data/logs/runpod_caps.json`) passed, and destroys verified vast workers still listed. It holds a separate RunPod key that the user revokes after the run.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

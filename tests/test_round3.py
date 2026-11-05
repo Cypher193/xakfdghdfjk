@@ -164,6 +164,31 @@ assert match("data/renders/kvelv/kvelv_ca_00_x0.5.mp4", s.PATTERNS) and match("d
 assert all(match(f, s.PUSH_PATTERNS) for f in ("runs/b5/vjepa2g/kgrav_00_g0.5_s0/acts.npz", "results/p6_vjepa2l_g_obj.csv",
                                               "results/c2g_kcontl_vjepa2g_ltx_vjepa2.csv", "results/c3_vjepa2l_gamma_ltx_vjepa2.csv"))
 assert not match("data/renders/kvelc/kvelc_ca_00_x0.5.mp4", s.PATTERNS)
+# Nano (RunPod): shards cover B1 100 x 2 and B5 90 x 2 once; the smoke job makes two new B1 clips only
+for exp, n_ids in (("b1", 100), ("b5", 90)):
+    ids = [i for k in range(1, 9) for st in MODEL_JOBS[f"cosmos3_nanog{k}of8"] if st["name"] == f"{exp}:cosmos3_nano" for i in st["ids"]]
+    assert len(ids) == len(set(ids)) == n_ids, exp
+smoke = MODEL_JOBS["cosmos3_nanosmoke"][0]
+assert smoke["ids"] == ["kmain_cv_04", "kmain_cv_09"] and smoke["clips"] == 2 and "--shard" in smoke["cmd"]
+assert job_repos("cosmos3_nanog1of8")[0] == ("nvidia/Cosmos3-Nano", None)
+s = sync_for("cosmos3_nanot2of2")
+assert match("runs/b2nl/cosmos3_nano/kmain_cv_01_s0/acts.npz", s.PUSH_PATTERNS) and match("results/show_v2_ltx_cosmos3_nanot2of2.csv", s.PUSH_PATTERNS)
+# RunPod stop path: success is the HTTP status; DELETE only when verified; the key never reaches the log
+import types
+import finalize
+calls, logged = [], []
+finalize.log, finalize.time.sleep = logged.append, lambda s: None
+os.environ.update(RUNPOD_POD_ID="podx", RUNPOD_API_KEY="secret-pod-key")
+os.environ.pop("CONTAINER_API_KEY", None)
+resp = iter([types.SimpleNamespace(ok=False, status_code=500, text="busy"), types.SimpleNamespace(ok=True, status_code=200, text="")])
+import requests
+requests.delete = lambda url, **kw: (calls.append(("DELETE", url)), next(resp))[1]
+requests.post = lambda url, **kw: (calls.append(("POST", url)), types.SimpleNamespace(ok=True, status_code=200, text=""))[1]
+assert finalize.stop_pod(True) is True and calls == [("DELETE", "https://rest.runpod.io/v1/pods/podx")] * 2
+calls.clear()
+assert finalize.stop_pod(False) is True and calls == [("POST", "https://rest.runpod.io/v1/pods/podx/stop")]
+assert not any("secret-pod-key" in m for m in logged)
+del os.environ["RUNPOD_POD_ID"], os.environ["RUNPOD_API_KEY"]
 from pilot.score import scored
 p = Path("tests/_scored_tmp.json")
 for body, want in (({"measurable": False, "reason": "error: ValueError: x"}, False), ({"measurable": False, "reason": "lost"}, True)):

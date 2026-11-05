@@ -148,6 +148,37 @@ def monitor(a):
     sys.exit(1)
 
 
+RPMON_SRC = "https://raw.githubusercontent.com/Cypher193/xakfdghdfjk/main/scripts/rpmon.py"
+RPMON_ONSTART = ("pip install -q requests huggingface_hub vastai && python -c \"import urllib.request as u;"
+                 f"u.urlretrieve('{RPMON_SRC}','/rpmon.py')\" && cd / && nohup python /rpmon.py > /rpmon.out 2>&1 &")
+
+
+def rpmon(a):
+    """Backstop monitor (scripts/rpmon.py) on the cheapest box: no ports needed, it only calls APIs and writes to HF.
+    RUNPOD_MONITOR_KEY (the user's separate, revocable key in ~/.runpod_monitor_key) goes in this instance's env only;
+    HF_TOKEN and MONITOR_VAST_KEY come from the team's account-level env vars."""
+    keyfile = Path.home() / ".runpod_monitor_key"
+    if not a.dry_run and not keyfile.exists():
+        sys.exit(f"{keyfile} missing: create a separate RunPod key for the monitor and save it there")
+    offers = []
+    for q in ("rentable=true reliability>0.98 inet_down>=50 disk_space>=10 num_gpus=0",
+              "rentable=true verified=true reliability>0.98 inet_down>=50 disk_space>=10 num_gpus=1"):
+        offers = (vast("search", "offers", q, "-o", "dph_total") or [])[:3]
+        if offers:
+            break
+    for o in offers:
+        print(f"offer {o['id']}  {o.get('gpu_name') or 'CPU'}  ${o['dph_total']:.3f}/h  {o.get('geolocation')}")
+        if a.dry_run:
+            return
+        r = vast("create", "instance", o["id"], "--image", "python:3.11-slim", "--disk", 10, "--label", "kvs-rpmon",
+                 "--env", f"-e RUNPOD_MONITOR_KEY={keyfile.read_text().strip()}", "--onstart-cmd", RPMON_ONSTART)
+        if (r or {}).get("new_contract"):
+            print(f"kvs-rpmon: created #{r['new_contract']} on offer {o['id']} (${o['dph_total']:.3f}/h)")
+            return
+        print(f"offer {o['id']}: create failed")
+    sys.exit("no monitor instance")
+
+
 def worker_label(a, k):
     m = re.fullmatch(r"(cosmos2b|cosmos14b|vace13|ltx2b)(?:([srgt])(\d+)of(\d+)|(probe|steer|rescore3))", a.job)   # MODEL_JOBS, STEER_JOBS
     if m:
@@ -331,6 +362,9 @@ def main():
     m.add_argument("--image", default="python:3.11-slim")
     m.add_argument("--disk", type=int, default=10)
     m.set_defaults(f=monitor)
+    rp = sub.add_parser("rpmon")
+    rp.add_argument("--dry-run", action="store_true")
+    rp.set_defaults(f=rpmon)
     def offer_args(p, disk):
         p.add_argument("--gpu", default="RTX 3090")
         p.add_argument("--vram", type=int, default=24)

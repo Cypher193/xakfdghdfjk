@@ -314,6 +314,19 @@ MODEL_JOBS |= {j: s for m, (n, per_s, blocks) in ROUND3.items() for j, s in _rou
 SCALE = {"g": (6, [("b1", None, [0, 1]), ("b5", None, [0, 1])]), "t": (3, [("b2nl", None, [0])])}
 for _p, (_n, _blocks) in SCALE.items():
     MODEL_JOBS |= _round3_jobs("cosmos14b", _n, 1100, _blocks, _p, ("sam2", "cotracker3"))
+# Cosmos 3 Nano (2026-11-06, H8; docs/phase3.md "Nano"), on the RunPod team account (scripts/runpod_launch.py): the 14B
+# design. `g`: B1 100 kmain x 2 seeds + B5 90 kgrav x 2 seeds; `t`: B2-nl seed 0. per_s: A40 guess from the A6000 timing
+# clips (248 s). `smoke`: 2 B1 clips, both trackers, then the pod must terminate itself (first RunPod pod of the account).
+NANO = {"g": (8, [("b1", None, [0, 1]), ("b5", None, [0, 1])]), "t": (2, [("b2nl", None, [0])])}
+for _p, (_n, _blocks) in NANO.items():
+    MODEL_JOBS |= _round3_jobs("cosmos3_nano", _n, 270, _blocks, _p, ("sam2", "cotracker3"))
+MODEL_JOBS["cosmos3_nanosmoke"] = [
+    gen("cosmos3_nano", "b1", 20, [0], shard="9/10", ids=kmain_ids(9, 10, 20)) | dict(per_s=270)] + [   # cv_04, cv_09
+    cmd(f"score:cosmos3_nanosmoke:{tr}", ["-m", "pilot.score", "--models", "cosmos3_nano", "--tracker", tr, "--table",
+                                          f"results/show{'_v2' * (tr != 'sam2')}_ltx_cosmos3_nanosmoke.csv"], 120)
+    for tr in ("sam2", "cotracker3")]
+MODEL_JOBS["cosmos3_nanoprobe"] = _probe_steps("cosmos3_nano") + [
+    cmd("nested:cosmos3_nano", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--model", "cosmos3_nano"], 3600)]
 MODEL_JOBS["cosmos14bprobe"] = [s | dict(est_s=4 * s["est_s"]) for s in _probe_steps("cosmos14b")] + [   # 5120-d acts
     cmd("nested:cosmos14b", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--model", "cosmos14b"], 3600)]
 # C7 steering on Cosmos-2B (G6 had only 6 pilot clips): alpha 0 is the B1 seed-0 clip
