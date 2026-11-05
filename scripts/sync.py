@@ -126,10 +126,15 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**", "data/real/**"] + [f"data/renders/{x}/*_input.mp4" for x in scenes if x != "real"] \
             + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json", "video.mp4")]
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
-    elif j in MODEL_JOBS:                 # {model}probe: as probe2, for that model's B1 + B5 clips
+    elif j in MODEL_JOBS:                 # {model}probe: as probe2, for that model's B1 + B5 clips (score_v2: nested --v2)
         m = j.removesuffix("probe")
-        PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json")]
-        PUSH_PATTERNS = mine + [f"results/p6_{m}*"]
+        PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
+                                                for f in ("acts.npz", "meta.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + [f"results/p6_{m}*", f"results/c3_{m}_*"]
+    if j == "vjepa2":                     # input windows (C1) and the C2 renders in; acts, probes, surprise out
+        from run_pilot import VJEPA_MODELS
+        PATTERNS = ["data/scenes/**"] + [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]             + [f"data/renders/{s}/*.mp4" for s in ("kvelv", "kturnl", "kcontl")] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
+        PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]] + [f"results/p6_{m}*" for m in VJEPA_MODELS]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 
 

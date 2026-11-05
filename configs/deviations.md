@@ -93,3 +93,13 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - The implied multiplier and its MRA are not defined for the turn sets; only `pref_acc` is reported.
 - **What is not changed:** every earlier scene file is byte-identical (regenerated and compared), and the loss settings of D5.
 - **Approved by:** the user approved runs A (LTX C2-g), B (motion-matched C2) and C (VACE C2) on 2026-11-04. The 30-degree-for-cv-only rule and the centring are mine.
+
+## D7 — Scale study and V-JEPA 2 design (2026-11-05, before any 14B or V-JEPA 2 run)
+
+- **Proposal v5:** Cosmos-14B runs B1 and B2-nl on 60 scenes x 3 samples (360 clips) for H6. V-JEPA 2 gets C1, C2 and C3.
+- **Change:**
+  - Cosmos-14B runs B1 on all 100 kmain scenes x 2 seeds and B5 on the 90 kgrav scenes x 2 seeds. H6 is an equivalence test (gap within 0.05 MRA of Cosmos-2B's), and the 2B gap's scene-bootstrap interval is already +-0.07-0.09 at 100 scenes, so 60 scenes could not show it; scenes matter more than seeds for that interval. B5 gives the gravity gap at scale.
+  - B2-nl on 14B runs with seed 0 only (100 clips), and only if the credit allows after B1 and B5. **Seed 1 of B2-nl on 14B is deferred until there is more budget (user, 2026-11-05).**
+  - V-JEPA 2 (ViT-L 256 and ViT-g 384) reads frames squashed to its square crop, not centre-cropped, because objects cross the full 832 px width. Its encoder sees only the context frames (the library's forward pass encodes the whole clip first). C2 uses surprise (L1 between predicted and encoded future tokens) on the rendered kvelv, kturnl and kcontl sets; C1 pools the context tokens per layer as the generators' acts, with the patch embeddings as the input-level baseline; C3 is the per-layer probe gamma on kgrav.
+- **What is not changed:** scenes, probes, gates and thresholds.
+- **Approved by:** the user approved V-JEPA 2, 14B B1 + B5 and one seed of 14B B2-nl on 2026-11-05. The scene and seed split is mine.

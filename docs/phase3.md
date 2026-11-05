@@ -301,6 +301,14 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
   - Both gravity tests favour stronger than true gravity (Cosmos 2.65 g, LTX 1.82 g).
   - So the likelihood holds direction and continuity, but not the size of speed or gravity; the probes read g well from the same models. Speed and gravity are known but not shown by the likelihood.
 
+## Scale study (Cosmos-14B, H6) and V-JEPA 2 (2026-11-05, user approved; credit $149.96; deviation D7)
+
+- **V-JEPA 2** (`pilot/vjepa.py`, job `vjepa2`, one RTX 4090, about $3-5): ViT-L and ViT-g on existing renders. C1 acts on the B1 / B5 input windows and the usual probes; C2 / C2-g surprise on kvelv, kturnl and kcontl (`results/c2{,g}_{set}_{model}_ltx_vjepa2.csv`, same layout as the generators' C2); C3 gamma per layer (`results/c3_{model}_gamma_ltx_vjepa2.csv`). No pixels, so no show score and no gap.
+- **Cosmos-14B** (jobs `cosmos14bgKof6`, 48 GB cards, about 1,100 s per clip on an L40S): B1 100 kmain x 2 seeds and B5 90 kgrav x 2 seeds, scored with SAM2 and CoTracker3, then `cosmos14bprobe` (probes + nested gap with `--v2`). About $92. H6: gap(14B) - gap(2B) on the same scenes, scene-bootstrap CI inside +-0.05.
+- **B2-nl on 14B** (jobs `cosmos14btKof3`, seed 0, 100 clips, about $22): launched only after `cosmos14bg*` finish and only if the credit left is at least its cost plus $10.
+- **Deferred (user, 2026-11-05): B2-nl seed 1 on Cosmos-14B,** about $22, when there is more budget.
+- Order: `cosmos14bg1of6` first as the smoke test (one clip with activations, VRAM and time per clip), with `vjepa2` in parallel; then the other five 14B pods.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).

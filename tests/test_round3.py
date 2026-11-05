@@ -147,6 +147,23 @@ assert job_repos("c3v1of4")[0] == ("Wan-AI/Wan2.1-VACE-1.3B-diffusers", None)
 s = sync_for("c3l2of2")
 assert match("data/renders/kcontl/kcontl_01_x4.0.mp4", s.PUSH_PATTERNS) and match("data/renders/kturnl/kturnl_cv_01_x30.mp4", s.PUSH_PATTERNS)
 assert match("results/c2g_kcontl_ltx2b_ltx_c3l2of2.csv", s.PUSH_PATTERNS) and not match("data/renders/kturnl/kturnl_cv_00_x0.mp4", s.PATTERNS)
+# scale study: 14B shards cover B1 (100 kmain x 2 seeds) and B5 (90 kgrav x 2 seeds) once; both trackers score
+from run_pilot import MODEL_JOBS
+for exp, n_ids in (("b1", 100), ("b5", 90)):
+    ids = [i for k in range(1, 7) for st in MODEL_JOBS[f"cosmos14bg{k}of6"] if st["name"] == f"{exp}:cosmos14b" for i in st["ids"]]
+    assert len(ids) == len(set(ids)) == n_ids, exp
+assert sum(st["clips"] for k in range(1, 4) for st in MODEL_JOBS[f"cosmos14bt{k}of3"] if st["kind"] == "gen") == 100
+assert job_repos("cosmos14bg3of6")[0] == ("nvidia/Cosmos-Predict2.5-14B", "diffusers/base/post-trained")
+s = sync_for("cosmos14bg2of6")
+assert match("data/renders/kgrav/kgrav_01_g2.0_input.mp4", s.PATTERNS) and match("runs/b5/cosmos14b/kgrav_00_g0.5_s1/acts.npz", s.PUSH_PATTERNS)
+assert match("results/show_v2_ltx_cosmos14bg2of6.csv", s.PUSH_PATTERNS)
+s = sync_for("cosmos14bprobe")
+assert match("runs/b1/cosmos14b/kmain_cv_00_s1/score_v2.json", s.PATTERNS) and match("results/c3_cosmos14b_v2_nested.csv", s.PUSH_PATTERNS)
+s = sync_for("vjepa2")
+assert match("data/renders/kvelv/kvelv_ca_00_x0.5.mp4", s.PATTERNS) and match("data/renders/kmain/kmain_cv_00_input.mp4", s.PATTERNS)
+assert all(match(f, s.PUSH_PATTERNS) for f in ("runs/b5/vjepa2g/kgrav_00_g0.5_s0/acts.npz", "results/p6_vjepa2l_g_obj.csv",
+                                              "results/c2g_kcontl_vjepa2g_ltx_vjepa2.csv", "results/c3_vjepa2l_gamma_ltx_vjepa2.csv"))
+assert not match("data/renders/kvelc/kvelc_ca_00_x0.5.mp4", s.PATTERNS)
 from pilot.score import scored
 p = Path("tests/_scored_tmp.json")
 for body, want in (({"measurable": False, "reason": "error: ValueError: x"}, False), ({"measurable": False, "reason": "lost"}, True)):

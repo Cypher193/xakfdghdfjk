@@ -285,19 +285,21 @@ RATIO2_IDS = [f"kratio2_{i:02d}" for i in range(40)]
 
 
 def round3_ids(exp, k, n, limit):
-    if exp in ("b2nl", "b2num", "b3"):
+    if exp in ("b1", "b2nl", "b2num", "b3"):
         return kmain_ids(k, n, limit or 100)
     return kgrav_ids(k, n, 30) if exp == "b5" else RATIO2_IDS[k - 1::n] if exp == "bratio2" else KL3_IDS[k - 1::n]
 
 
-def _round3_jobs(model, n, per_s, blocks):
+def _round3_jobs(model, n, per_s, blocks, prefix="g", trackers=("sam2",)):
     jobs = {}
     for k in range(1, n + 1):
-        sh, name = f"{k}/{n}", f"{model}g{k}of{n}"
+        sh, name = f"{k}/{n}", f"{model}{prefix}{k}of{n}"
         steps = [gen(model, e, limit, seeds, shard=sh, ids=round3_ids(e, k, n, limit)) | dict(per_s=per_s)
                  for e, limit, seeds in blocks]
-        steps.append(cmd(f"score:{name}", ["-m", "pilot.score", "--models", model, "--table",
-                                           f"results/show_ltx_{name}.csv"], 10 * sum(s["clips"] for s in steps)))
+        n_clips = sum(s["clips"] for s in steps)
+        steps += [cmd(f"score:{name}:{tr}", ["-m", "pilot.score", "--models", model, "--tracker", tr, "--table",
+                                             f"results/show{'_v2' * (tr != 'sam2')}_ltx_{name}.csv"], 10 * n_clips)
+                  for tr in trackers]
         jobs[name] = steps
     return jobs
 
@@ -305,6 +307,15 @@ def _round3_jobs(model, n, per_s, blocks):
 MODEL_JOBS = {j: s for m, n in MODEL_SHARDS.items() for j, s in _model_jobs(m, n).items()}   # sync.py: table-driven
 MODEL_JOBS |= {j: s for m, (n, b5) in ROUND2.items() for j, s in _round2_jobs(m, n, b5).items()}
 MODEL_JOBS |= {j: s for m, (n, per_s, blocks) in ROUND3.items() for j, s in _round3_jobs(m, n, per_s, blocks).items()}
+# Scale study (2026-11-05, docs/phase3.md "Scale study", H6): Cosmos-14B on 48 GB cards. `g`: B1 on the 100 kmain scenes and
+# B5 on the 90 kgrav scenes, seeds 0-1 (100 scenes, not the proposal's 60: H6 is an equivalence test). `t`: B2-nl seed 0,
+# launched after `g` only if the credit allows; B2-nl seed 1 is deferred to a later budget. per_s: L40S, from the 10
+# timing clips (1040-1100 s, activations captured). Both trackers score, as the 2B clips were.
+SCALE = {"g": (6, [("b1", None, [0, 1]), ("b5", None, [0, 1])]), "t": (3, [("b2nl", None, [0])])}
+for _p, (_n, _blocks) in SCALE.items():
+    MODEL_JOBS |= _round3_jobs("cosmos14b", _n, 1100, _blocks, _p, ("sam2", "cotracker3"))
+MODEL_JOBS["cosmos14bprobe"] = [s | dict(est_s=4 * s["est_s"]) for s in _probe_steps("cosmos14b")] + [   # 5120-d acts
+    cmd("nested:cosmos14b", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--model", "cosmos14b"], 3600)]
 # C7 steering on Cosmos-2B (G6 had only 6 pilot clips): alpha 0 is the B1 seed-0 clip
 STEER_JOBS = {"cosmos2bsteer": [
     dict(name="steer:cosmos2b", kind="gen", model="cosmos2b", clips=40, out=["runs/steer/cosmos2b"],
@@ -449,6 +460,16 @@ def _c3_jobs():
 
 
 C2_JOBS |= _c3_jobs()
+# V-JEPA 2 (2026-11-05, docs/phase3.md "V-JEPA 2"): C1 acts on the B1 / B5 input windows, C2 / C2-g surprise on the
+# rendered kvelv / kturnl / kcontl sets, probes, C3 gamma per layer; both sizes on one RTX 4090, existing renders only
+VJEPA_MODELS = ("vjepa2l", "vjepa2g")
+VJEPA_JOB = [cmd(f"acts:{m}:{e}", ["-m", "pilot.vjepa", "acts", "--model", m, "--exp", e], 900)
+             for m in VJEPA_MODELS for e in ("b1", "b5")]     + [cmd(f"surprise:{m}:{s}", ["-m", "pilot.vjepa", "surprise", "--model", m, "--set", s,
+                                 "--out", f"results/{'c2g' if s.startswith('kcont') else 'c2'}_{s}_{m}_ltx_vjepa2.csv"], 1800)
+       for m in VJEPA_MODELS for s in ("kvelv", "kturnl", "kcontl")]     + [st for m in VJEPA_MODELS for st in _probe_steps(m)]     + [cmd(f"gamma:{m}", ["-m", "pilot.vjepa", "gamma", "--model", m, "--out", f"results/c3_{m}_gamma_ltx_vjepa2.csv"], 900)
+       for m in VJEPA_MODELS]
+C2_JOBS["vjepa2"] = VJEPA_JOB
+LTX_RUNS["vjepa2"] = [f"runs/{e}/{m}" for m in VJEPA_MODELS for e in ("b1", "b5")]
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
     | {"stats2v2": STATS2V2} | C2_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
