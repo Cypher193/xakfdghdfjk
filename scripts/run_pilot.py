@@ -475,6 +475,12 @@ C2_JOBS["vjepa2s"] = [cmd(f"surprise:{m}:{s}:s{k}", ["-m", "pilot.vjepa", "surpr
                       for k in (2, 3, 4) for m in VJEPA_MODELS for s in ("kvelv", "kturnl", "kcontl")]
 LTX_RUNS["vjepa2"] = [f"runs/{e}/{m}" for m in VJEPA_MODELS for e in ("b1", "b5")]
 LTX_RUNS["vjepa2s"] = []
+# Wrap-up (2026-11-05, user: on vast, not the laptop): pilot.wrapup (H1, H2, H5, H7, C4, B-ratio, rederr) and the gates
+# report per model with both trackers, from score files and earlier results only (no videos, no activations)
+WRAPUP_EXPS = ["b1", "b2nl", "b2num", "b3", "bl3", "bl3nl", "b5", "bratio2", "steer", "b1real"]
+C2_JOBS["wrapup"] = [cmd("wrapup", ["-m", "pilot.wrapup"], 1800)] +     [cmd(f"gates:{m}{':v2' * v2}", ["-m", "pilot.analysis", "gates", "--no-fetch", "--model", m] + ["--v2"] * v2, 600)
+     for m in STATS_MODELS for v2 in (True, False)]
+LTX_RUNS["wrapup"] = []
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
     | {"stats2v2": STATS2V2} | C2_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))

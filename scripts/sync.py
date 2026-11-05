@@ -131,6 +131,10 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
                                                 for f in ("acts.npz", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"results/p6_{m}*", f"results/c3_{m}_*"]
+    if j == "wrapup":                     # score files + meta of every clip, earlier results; gates reports out
+        from run_pilot import STATS_MODELS, WRAPUP_EXPS
+        PATTERNS = ["data/scenes/**", "data/real/**", "results/**"] + mine +             [f"runs/{e}/{m}/*/{f}" for e in WRAPUP_EXPS for m in STATS_MODELS for f in ("meta.json", "score.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + ["results/gates_*.md", "results/c3_*_gates*"]
     if j == "vjepa2s":                    # surprise at frame strides 2-4: the C2 renders in, its own results out
         PATTERNS = ["data/scenes/**"] + [f"data/renders/{s}/*.mp4" for s in ("kvelv", "kturnl", "kcontl")] + mine
         PUSH_PATTERNS = mine
