@@ -1,6 +1,7 @@
 """Laptop-side launcher for RunPod job pods (team account; key in ~/.runpod_key, never printed or passed in argv).
 
     python scripts/runpod_launch.py create cosmos3_nanosmoke --gpu "NVIDIA A40" --budget-h 1.5
+    python scripts/runpod_launch.py create cosmos14bprobe --cpu cpu3g --vcpu 16 --budget-h 6 --max-price 1.0
     python scripts/runpod_launch.py ls
     python scripts/runpod_launch.py terminate POD_ID -y
 
@@ -60,6 +61,11 @@ def create(a):
                 containerDiskInGb=a.disk, volumeInGb=0, ports=["22/tcp"], minRAMPerGPU=a.ram,
                 dockerStartCmd=["bash", "-c", START.format(repo=REPO, job=a.job, budget=a.budget_h)],
                 env={"HF_TOKEN": "{{ RUNPOD_SECRET_HF_TOKEN }}", "HF_DATA_REPO": HF_REPO, "PUBLIC_KEY": pub})
+    if a.cpu:                              # CPU-only pod (probes): no GPU fields; RAM comes with the flavor and vCPU count
+        for k in ("gpuTypeIds", "gpuCount", "minRAMPerGPU"):
+            body.pop(k)
+        body |= dict(computeType="CPU", cpuFlavorIds=[a.cpu], vcpuCount=a.vcpu)
+        a.gpu = f"CPU {a.cpu} x{a.vcpu}"
     if a.dry_run:
         print(json.dumps(body | {"env": {k: (v if k != "PUBLIC_KEY" else "<laptop public key>") for k, v in body["env"].items()}}, indent=1))
         return
@@ -120,6 +126,8 @@ if __name__ == "__main__":
     c.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
     c.add_argument("--disk", type=int, default=150)
     c.add_argument("--ram", type=int, default=48, help="min RAM per GPU, GB")
+    c.add_argument("--cpu", help="CPU-only pod of this flavor (e.g. cpu3g, cpu3m, cpu5c); --gpu and --ram are ignored")
+    c.add_argument("--vcpu", type=int, default=16, help="vCPUs of a --cpu pod")
     c.add_argument("--budget-h", type=float, required=True)
     c.add_argument("--max-price", type=float, default=0.80, help="terminate at once above this $/h")
     c.add_argument("--dry-run", action="store_true")
