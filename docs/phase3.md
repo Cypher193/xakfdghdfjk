@@ -384,6 +384,20 @@ pref_acc is the share of altered copies whose denoising loss is above the true c
 - **VACE** detects turns as well as Cosmos-2B (constant velocity 0.99, constant acceleration 0.66). On gravity it is at chance and prefers stronger-than-true gravity, as Cosmos-2B does (k_implied 2.65); 10 bases make this loose.
 - **Across generators,** the likelihood pulls velocity slow (preferred k about 0.5-0.8) and gravity strong (preferred k about 2-2.6), and detects turns well.
 
+### H2 at 14B and Nano (2026-11-06, `pilot.wrapup.h2` on the 14B and Nano clips)
+
+B1 (video) minus B2-nl (text in words), per scene, scene bootstrap 95% CI; H2 asks for >= 0.10. 14B: B1 seeds 0-1 (vast `cosmos14bgKof6`, all 6 shards verified), B2-nl seeds 0-1. Nano: B1 seeds 0-1, B2-nl seed 0. "meas" averages measurable clips; "strict" counts an unmeasurable clip as 0.
+
+| Model | Target | SAM2 meas | SAM2 strict | CoTracker3 meas | CoTracker3 strict |
+|---|---|---|---|---|---|
+| Cosmos-14B | hspeed | 0.476 [0.390, 0.560] | 0.393 [0.318, 0.468] | 0.543 [0.457, 0.627] | 0.397 [0.327, 0.467] |
+| Cosmos-14B | g | 0.315 [0.245, 0.389] | 0.185 [0.137, 0.234] | 0.372 [0.278, 0.484] | 0.226 [0.163, 0.292] |
+| Cosmos-14B | e | 0.066 [0.002, 0.134] | -0.039 [-0.119, 0.039] | 0.250 [0.112, 0.397] | 0.249 [0.128, 0.362] |
+| Nano | hspeed | 0.374 [0.286, 0.462] | 0.205 [0.152, 0.263] | 0.441 [0.333, 0.547] | 0.187 [0.137, 0.242] |
+| Nano | g | 0.267 [0.097, 0.420], 9 scenes | -0.011 [-0.094, 0.066] | 0.141 [0.031, 0.286], 6 scenes | -0.028 [-0.112, 0.049] |
+
+**H2 holds at 14B:** video beats text on speed and gravity by 0.19-0.54 MRA under both trackers and both scorings, every CI above 0.10. Text-only speed is near 0 (0.007-0.032), as at 2B. Nano passes on speed; its gravity result rests on 6-9 measurable scenes and vanishes under strict scoring. Measurable shares: 14B B1 0.78 / 0.76 (SAM2 / CoTracker3), B2-nl 0.85 / 0.52; Nano B1 0.54 / 0.43.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
