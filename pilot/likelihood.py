@@ -61,6 +61,21 @@ class CosmosLoss:
             raise ValueError("prompt rejected by the Cosmos guardrail")
         return self.pipe.encode_prompt(prompt, do_classifier_free_guidance=False, device=self.device)[0]
 
+    def drop_text_encoder(self):
+        """Free the text encoder once every prompt is encoded. The offload hook chain holds a reference to it, so the
+        hooks are rebuilt without it (enable_model_cpu_offload skips components that are None)."""
+        import gc
+        p, offload = self.pipe, bool(self.cfg.get("cpu_offload"))
+        if offload:
+            p.remove_all_hooks()
+        p.text_encoder = None
+        if p.safety_checker is not None:                              # prompts are checked; it held GPU memory
+            p.safety_checker.to("cpu")
+        gc.collect()
+        torch.cuda.empty_cache()
+        if offload:
+            p.enable_model_cpu_offload()
+
     @torch.no_grad()
     def loss(self, x0, emb, sigmas, noises, n_cond_latent, cond_t=1e-4):
         B, C, T, H, W = x0.shape
@@ -294,10 +309,14 @@ def run(lo, cfg, scene_root, render_root, out, n_sigmas=8, n_noise=4, shard=None
     sigmas = lo.sigmas(n_sigmas)
     n_cond_latent = 1 + (cfg["cond_frames"] - 1) // cfg["vae_stride"][0]
     done = set(pd.read_csv(out).base) if out.exists() else set()
-    for base, variants in bases(scene_root, shard).items():
-        if base in done:
-            continue
-        t0, emb, noises, rows = time.time(), lo.text(variants[0]["caption"]), None, []
+    todo = {b: v for b, v in bases(scene_root, shard).items() if b not in done}
+    # every prompt is encoded (and passes the guardrail) first, then the text encoder can leave memory: with CPU
+    # offload Cosmos-14B kept transformer + 7B text encoder + guardrail in a 50 GB pod and was OOM-killed (2026-11-06)
+    embs = {b: lo.text(v[0]["caption"]) for b, v in todo.items()}
+    if embs and hasattr(lo, "drop_text_encoder"):
+        lo.drop_text_encoder()
+    for base, variants in todo.items():
+        t0, emb, noises, rows = time.time(), embs[base], None, []
         gen = torch.Generator(lo.device).manual_seed(0)
         for spec in variants:
             frames = frames_fn(spec) if frames_fn else list(load_video(Path(render_root) / f"{spec['id']}.mp4")[0])
