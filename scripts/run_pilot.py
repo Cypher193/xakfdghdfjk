@@ -456,8 +456,10 @@ C2_JOBS = _c2_jobs()
 # [(scene set, noise levels, variants per base: kturn* 3 for cv and 2 for bounces, render fps, seconds)]
 C3_PODS = {"c3v": ("vace13", 4, 140, [("kvelv", 8, 5, 16, 5.0625)]),
            "c3c": ("cosmos2b", 3, 140, [("kturnc", 8, 2.5, 16, 5.8125)]),
-           "c3l": ("ltx2b", 2, 25, [("kcontl", 16, 7, 24, 5.0417), ("kturnl", 8, 2.5, 24, 5.0417)])}
-C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl")}
+           "c3l": ("ltx2b", 2, 25, [("kcontl", 16, 7, 24, 5.0417), ("kturnl", 8, 2.5, 24, 5.0417)]),
+           # 2026-11-06 (user, RunPod): Cosmos 3 Nano C2 on its own window (kveln), ~3.5 s per pass on an A40
+           "c3n": ("cosmos3_nano", 4, 120, [("kveln", 8, 5, 24, 5.0417)])}
+C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl", "kveln")}
 
 
 def _c3_jobs():
@@ -473,6 +475,13 @@ def _c3_jobs():
 
 
 C2_JOBS |= _c3_jobs()
+# Cosmos-14B C2 (2026-11-06, user: 50 bases, RunPod): shards 1-6 of 12 of the 100 kvelc bases, on the renders Cosmos-2B
+# used (same window and clip), so no render step. ~350 s per variant at 32 passes on an RTX PRO 6000 (B2-nl: 600 s a clip)
+for _k in range(1, 7):
+    _name = f"c3b{_k}of6"
+    C2_BASES[_name] = {"kvelc": [f"kvelc_{b}" for b in KVEL_BASES][_k - 1::12]}
+    C2_JOBS[_name] = [_likelihood("cosmos14b", "kvelc", f"{_k}/12", _name, 8, len(C2_BASES[_name]["kvelc"]) * 5 * 350)]
+    LTX_RUNS[_name] = []
 # V-JEPA 2 (2026-11-05, docs/phase3.md "V-JEPA 2"): C1 acts on the B1 / B5 input windows, C2 / C2-g surprise on the
 # rendered kvelv / kturnl / kcontl sets, probes, C3 gamma per layer; both sizes on one RTX 4090, existing renders only
 VJEPA_MODELS = ("vjepa2l", "vjepa2g")

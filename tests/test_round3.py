@@ -23,7 +23,7 @@ cfg = yaml.safe_load(open("configs/pilot.yaml"))
 built = scenes.build(cfg)
 ids = {k: [s["id"] for s in v] for k, v in built.items()}
 assert {k: len(v) for k, v in built.items()} == dict(kmain=100, kgrav=90, kratio=10, kratio2=40, kl3=30, kcont=70, kvelc=500,
-                                                     kvell=500, kvelv=500, kturnc=250, kturnl=250, kcontl=70)
+                                                     kvell=500, kvelv=500, kveln=500, kturnc=250, kturnl=250, kcontl=70)
 
 # collisions: momentum holds, restitution holds, contact after the longest input window, balls touch at contact
 for s in built["kl3"][:15]:

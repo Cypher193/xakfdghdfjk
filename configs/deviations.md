@@ -103,3 +103,12 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
   - V-JEPA 2 (ViT-L 256 and ViT-g 384) reads frames squashed to its square crop, not centre-cropped, because objects cross the full 832 px width. Its encoder sees only the context frames (the library's forward pass encodes the whole clip first). C2 uses surprise (L1 between predicted and encoded future tokens) on the rendered kvelv, kturnl and kcontl sets; C1 pools the context tokens per layer as the generators' acts, with the patch embeddings as the input-level baseline; C3 is the per-layer probe gamma on kgrav.
 - **What is not changed:** scenes, probes, gates and thresholds.
 - **Approved by:** the user approved V-JEPA 2, 14B B1 + B5 and one seed of 14B B2-nl on 2026-11-05. The scene and seed split is mine.
+
+## D8: C2 on Cosmos-14B and Cosmos 3 Nano (2026-11-06)
+
+- **What changes:** the proposal runs C2 on the three main generators only. The user added C2 for Cosmos-14B (50 bases) and Cosmos 3 Nano, run on the RunPod team account.
+- **How:**
+  - Cosmos-14B uses the Cosmos-2B loss code and the same kvelc renders, since its window and clip match. It runs shards 1-6 of 12 of the 100 kvelc bases, 52 bases in all.
+  - Nano gets its own scene set, kveln: the same kmain scenes with the speed switch at the end of its 5-frame window at 24 fps (0.208 s). All 100 bases run. The loss (`pilot.likelihood.NanoLoss`) keeps the window's two latent frames clean and noises the rest, as the pipeline's denoising loop does. It uses the text-conditional pass only, the same 8 noise levels x 4 draws, and target v = eps - x0. A one-time sign check is printed on the pod.
+- **What is not changed:** the copies (k in 0.5, 0.8, 1, 1.25, 2), the passes per copy and the summary.
+- **Approved by:** the user, 2026-11-06.

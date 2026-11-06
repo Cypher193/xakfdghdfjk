@@ -426,7 +426,7 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
     return out
 
 
-VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b", "kvelv": "vace13"}   # C2 scene set: model whose window and clip it uses
+VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b", "kvelv": "vace13", "kveln": "cosmos3_nano"}   # C2 scene set: model whose window and clip it uses
 V_SCALES = (0.5, 0.8, 1.0, 1.25, 2.0)
 TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b"}
 TURN_DEGS = (0, 30, 180)

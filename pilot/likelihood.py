@@ -3,7 +3,7 @@
 Each scene base has variants that share the input window and differ after it:
   kcont (C2-g, Cosmos): gravity switches to k x g at the end of the window, k in {0.25 ... 4}
   kcontl (C2-g, LTX): the same with the switch at the end of LTX's window
-  kvelc / kvell / kvelv (C2, Cosmos / LTX / VACE): the velocity is scaled by k in {0.5, 0.8, 1, 1.25, 2} (VEL_SETS)
+  kvelc / kvell / kvelv / kveln (C2, Cosmos-2B and -14B / LTX / VACE / Cosmos 3 Nano): the velocity is scaled by k in {0.5, 0.8, 1, 1.25, 2} (VEL_SETS)
   kturnc / kturnl (C2-turn, Cosmos / LTX): the velocity turns by k in {0, 30, 180} degrees, same speed (TURN_SETS)
 For each variant: loss ||v_pred - (eps - x0)||^2 on the continuation latent frames (window frames clean for Cosmos and
 LTX; VACE noises all frames and gets the window through its context), averaged over noise levels and fixed noise draws (identical across a base's variants). Per base: the implied multiplier (minimum
@@ -33,7 +33,8 @@ from pilot.models import _pil
 from pilot.track import load_video
 
 RENDER = {"kcont": (16, 5.8125), "kvelc": (16, 5.8125), "kturnc": (16, 5.8125),     # fps, seconds: >= the model's clip
-          "kvell": (24, 5.0417), "kturnl": (24, 5.0417), "kcontl": (24, 5.0417), "kvelv": (16, 5.0625)}
+          "kvell": (24, 5.0417), "kturnl": (24, 5.0417), "kcontl": (24, 5.0417), "kvelv": (16, 5.0625),
+          "kveln": (24, 5.0417)}
 
 
 class CosmosLoss:
@@ -173,7 +174,79 @@ class VaceLoss:
         return float(np.mean(out))
 
 
-LOSSES = {"cosmos2b": CosmosLoss, "ltx2b": LTXLoss, "vace13": VaceLoss}
+class NanoLoss:
+    """Cosmos3OmniPipeline (Cosmos 3 Nano): one packed sequence of text then vision tokens; the window's latent frames
+    stay clean (condition_frame_indexes_vision), the rest are noised at timestep s x 1000, as its denoising loop does;
+    output v = eps - x0 (flow matching). Text-conditional pass only, as for the other models."""
+
+    def __init__(self, pipe, cfg, device, dtype):
+        self.pipe, self.cfg, self.device, self.dtype = pipe, cfg, device, dtype
+
+    def sigmas(self, n):
+        p, steps = self.pipe, self.cfg["steps"]
+        if p.config.use_native_flow_schedule:                           # as the pipeline sets its schedule
+            s = np.linspace(1.0 - 1.0 / p.scheduler.config.num_train_timesteps, 0.0, steps + 1)[:-1]
+            p.scheduler.set_timesteps(steps, sigmas=s)
+        else:
+            p.scheduler.set_timesteps(steps)
+        s = p.scheduler.sigmas.cpu().numpy()[:steps]
+        return [float(v) for v in s[np.linspace(0, len(s) - 1, n).astype(int)]]
+
+    @torch.no_grad()
+    def latents(self, frames):
+        c, p = self.cfg, self.pipe
+        x = p.video_processor.preprocess_video(_pil(frames, c["width"], c["height"]), c["height"], c["width"])
+        return p._encode_video(x.to(self.device, torch.float32)).float()             # (1, C, T, H, W), normalised
+
+    @torch.no_grad()
+    def text(self, prompt):
+        c, p = self.cfg, self.pipe
+        p.maybe_free_model_hooks()
+        p.safety_checker.to(self.device)                                 # NVIDIA guardrail stays in the loop
+        if not p.safety_checker.check_text_safety(prompt):
+            raise ValueError("prompt rejected by the Cosmos guardrail")
+        p.safety_checker.to("cpu")
+        ids, _ = p.tokenize_prompt(prompt, None, num_frames=c["num_frames"], height=c["height"], width=c["width"],
+                                   fps=c["fps"], use_system_prompt=None, add_resolution_template=True,
+                                   add_duration_template=True, action_mode=None, action_view_point=None)
+        return p._prepare_text_segment(ids, device=self.device)
+
+    @torch.no_grad()
+    def loss(self, x0, emb, sigmas, noises, n_cond_latent):
+        p, T = self.pipe, x0.shape[2]
+        cond = list(range(n_cond_latent))
+        vis = p._prepare_vision_segment(input_vision_tokens=x0, has_image_condition=True,
+                                        mrope_offset=emb["vision_start_temporal_offset"], vision_fps=float(self.cfg["fps"]),
+                                        curr=emb["und_len"], device=self.device, condition_frame_indexes=cond)
+        ind = torch.zeros(1, 1, T, 1, 1, device=self.device)
+        ind[:, :, :n_cond_latent] = 1.0
+        n_train = p.scheduler.config.num_train_timesteps
+        out = []
+        for s in sigmas:
+            for eps in noises:
+                xs = ind * x0 + (1 - ind) * ((1 - s) * x0 + s * eps)
+                with p.transformer.cache_context("cond", step_index=0, sigma=s, num_inference_steps=self.cfg["steps"]):
+                    v = p.transformer(input_ids=emb["input_ids"], text_indexes=emb["text_indexes"],
+                                      position_ids=torch.cat([emb["text_mrope_ids"], vis["vision_mrope_ids"]], dim=1),
+                                      und_len=emb["und_len"], sequence_length=emb["und_len"] + vis["num_vision_tokens"],
+                                      vision_tokens=[xs.to(self.dtype)], vision_token_shapes=vis["vision_token_shapes"],
+                                      vision_sequence_indexes=vis["vision_sequence_indexes"],
+                                      vision_mse_loss_indexes=vis["vision_mse_loss_indexes"],
+                                      vision_timesteps=torch.full((vis["num_noisy_vision_tokens"],), s * n_train,
+                                                                  device=self.device),
+                                      vision_noisy_frame_indexes=vis["vision_noisy_frame_indexes"],
+                                      return_dict=False)[0][0]
+                v = v.float().reshape(x0.shape)
+                if not getattr(self, "_signed", False):                 # smoke check of the target's sign, once
+                    self._signed = True
+                    err = lambda y: ((v - y) ** 2)[:, :, n_cond_latent:].mean().item()
+                    print(f"nano sign check at sigma {s:.3f}: eps - x0 {err(eps - x0):.4f}, x0 - eps {err(x0 - eps):.4f}", flush=True)
+                out.append(((v - (eps - x0)) ** 2)[:, :, n_cond_latent:].mean().item())
+        return float(np.mean(out))
+
+
+LOSSES = {"cosmos2b": CosmosLoss, "cosmos14b": CosmosLoss, "ltx2b": LTXLoss, "vace13": VaceLoss,
+          "cosmos3_nano": NanoLoss}
 
 
 def implied_multiplier(ks, losses):
@@ -268,6 +341,8 @@ def main():
     cfg = run_cfg["models"][a.model]
     kw = dict(torch_dtype=torch.bfloat16) | ({"revision": cfg["revision"]} if cfg.get("revision") else {})
     pipe = getattr(diffusers, cfg["pipeline"]).from_pretrained(cfg["repo"], **kw)
+    if cfg.get("scheduler"):          # Nano: the sampler and flow shift it generates with (pilot.models.Generator)
+        pipe.scheduler = getattr(diffusers, cfg["scheduler"]).from_config(pipe.scheduler.config, flow_shift=cfg["flow_shift"])
     if cfg.get("cpu_offload"):        # Cosmos: its text encoder and guardrail do not fit next to it on a 24 GB card
         pipe.enable_model_cpu_offload()
     else:
