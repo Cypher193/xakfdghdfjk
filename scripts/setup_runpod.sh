@@ -26,9 +26,19 @@ elif os.environ.get("LTX_JOB"):            # job pods: the job's models + SAM2 o
     import sys; sys.path.insert(0, "scripts")
     from run_pilot import job_repos
     repos = job_repos(os.environ["LTX_JOB"])
+import time
+from huggingface_hub.errors import HfHubHTTPError, LocalEntryNotFoundError
 for repo, rev in repos:
     print("downloading", repo, flush=True)
-    snapshot_download(repo, revision=rev)
+    for attempt in range(12):             # HF's 1,000 API calls per 5 min are shared by every pod (2026-11-06)
+        try:
+            snapshot_download(repo, revision=rev)
+            break
+        except (HfHubHTTPError, LocalEntryNotFoundError) as e:
+            if "429" not in str(e) or attempt == 11:
+                raise
+            print(f"HF rate limit, retry {attempt + 1} in 90 s", flush=True)
+            time.sleep(90)
 EOF
 python -m pilot.metrics
 python scripts/sync.py pull                     # renders, runs, results from earlier pods
