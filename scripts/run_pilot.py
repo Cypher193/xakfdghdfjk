@@ -469,8 +469,11 @@ C3_PODS = {"c3v": ("vace13", 4, 140, [("kvelv", 8, 5, 16, 5.0625)]),
            # 2026-11-06 (user, RunPod): Cosmos 3 Nano C2 on its own window (kveln), ~3.5 s per pass on an A40
            "c3n": ("cosmos3_nano", 4, 120, [("kveln", 8, 5, 24, 5.0417)]),
            # 2026-11-06 (user, RunPod): VACE C2-g and C2-turn on its window, ~275 s per copy on an A40 (2.2x a 4090)
-           "c3w": ("vace13", 6, 275, [("kcontv", 16, 7, 16, 5.0625), ("kturnv", 8, 2.5, 16, 5.0625)])}
-C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)], "kcontv": [f"kcontv_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl", "kveln", "kturnv")}
+           "c3w": ("vace13", 6, 275, [("kcontv", 16, 7, 16, 5.0625), ("kturnv", 8, 2.5, 16, 5.0625)]),
+           # 2026-11-06 (user, vast credit): Nano C2-g and C2-turn on its window; ~90 s per copy measured on A40 (c3n)
+           "c3m": ("cosmos3_nano", 3, 120, [("kcontn", 16, 7, 24, 5.0417), ("kturnn", 8, 2.5, 24, 5.0417)])}
+C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)], "kcontv": [f"kcontv_{i:02d}" for i in range(10)],
+           "kcontn": [f"kcontn_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl", "kveln", "kturnv", "kturnn")}
 
 
 def _c3_jobs():

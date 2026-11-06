@@ -408,7 +408,7 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
             out["kcont"].append(c)
     # C2 (2026-11-03): every kmain scene with its velocity scaled from the end of a model's input window on, no new draws.
     # 2026-11-04: VACE's window (kvelv), the same scenes turned instead of scaled (kturn*), kcont at LTX's window (kcontl).
-    # 2026-11-06: VACE's turn and gravity-switch sets (kturnv, kcontv).
+    # 2026-11-06: VACE's turn and gravity-switch sets (kturnv, kcontv), then Nano's (kturnn, kcontn).
     for name, model in VEL_SETS.items():
         out[name] = switch_copies(out["kmain"], name, cfg["models"][model], cam, cfg, "vswitch", "v_scale", V_SCALES)
     for name, model in TURN_SETS.items():
@@ -430,8 +430,8 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
 
 VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b", "kvelv": "vace13", "kveln": "cosmos3_nano"}   # C2 scene set: model whose window and clip it uses
 V_SCALES = (0.5, 0.8, 1.0, 1.25, 2.0)
-TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b", "kturnv": "vace13"}
-CONT_SETS = {"kcontl": "ltx2b", "kcontv": "vace13"}
+TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b", "kturnv": "vace13", "kturnn": "cosmos3_nano"}
+CONT_SETS = {"kcontl": "ltx2b", "kcontv": "vace13", "kcontn": "cosmos3_nano"}
 TURN_DEGS = (0, 30, 180)
 
 

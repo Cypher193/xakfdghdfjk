@@ -34,7 +34,8 @@ from pilot.track import load_video
 
 RENDER = {"kcont": (16, 5.8125), "kvelc": (16, 5.8125), "kturnc": (16, 5.8125),     # fps, seconds: >= the model's clip
           "kvell": (24, 5.0417), "kturnl": (24, 5.0417), "kcontl": (24, 5.0417), "kvelv": (16, 5.0625),
-          "kveln": (24, 5.0417), "kturnv": (16, 5.0625), "kcontv": (16, 5.0625)}
+          "kveln": (24, 5.0417), "kturnv": (16, 5.0625), "kcontv": (16, 5.0625),
+          "kturnn": (24, 5.0417), "kcontn": (24, 5.0417)}
 
 
 class CosmosLoss:
