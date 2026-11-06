@@ -320,6 +320,15 @@ for _p, (_n, _blocks) in SCALE.items():
 NANO = {"g": (8, [("b1", None, [0, 1]), ("b5", None, [0, 1])]), "t": (2, [("b2nl", None, [0])])}
 for _p, (_n, _blocks) in NANO.items():
     MODEL_JOBS |= _round3_jobs("cosmos3_nano", _n, 270, _blocks, _p, ("sam2", "cotracker3"))
+# 2026-11-06 (user, RunPod): the G4 fix, B5 seeds 5-7 on LTX and Cosmos-2B (configs/gates.yaml's fail rule: 8 seeds), and
+# 14B B2-nl seed 1 (deferred 2026-11-05). per_s: A40 / A5000 guesses (3090: Cosmos-2B 619 s, LTX 69 s; 14B A40 ~1900 s).
+EXTRA = {"ltx2b": (2, 80, "h", [("b5", None, [5, 6, 7])]), "cosmos2b": (6, 650, "h", [("b5", None, [5, 6, 7])]),
+         "cosmos14b": (6, 1900, "u", [("b2nl", None, [1])])}
+NARROW_PULL = set()                   # sync.py pulls only these jobs' own shard files
+for _m, (_n, _ps, _p, _blocks) in EXTRA.items():
+    _jobs = _round3_jobs(_m, _n, _ps, _blocks, _p, ("sam2", "cotracker3"))
+    MODEL_JOBS |= _jobs
+    NARROW_PULL |= set(_jobs)
 MODEL_JOBS["cosmos3_nanosmoke"] = [
     gen("cosmos3_nano", "b1", 20, [0], shard="9/10", ids=kmain_ids(9, 10, 20)) | dict(per_s=270)] + [   # cv_04, cv_09
     cmd(f"score:cosmos3_nanosmoke:{tr}", ["-m", "pilot.score", "--models", "cosmos3_nano", "--tracker", tr, "--table",
@@ -458,8 +467,10 @@ C3_PODS = {"c3v": ("vace13", 4, 140, [("kvelv", 8, 5, 16, 5.0625)]),
            "c3c": ("cosmos2b", 3, 140, [("kturnc", 8, 2.5, 16, 5.8125)]),
            "c3l": ("ltx2b", 2, 25, [("kcontl", 16, 7, 24, 5.0417), ("kturnl", 8, 2.5, 24, 5.0417)]),
            # 2026-11-06 (user, RunPod): Cosmos 3 Nano C2 on its own window (kveln), ~3.5 s per pass on an A40
-           "c3n": ("cosmos3_nano", 4, 120, [("kveln", 8, 5, 24, 5.0417)])}
-C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl", "kveln")}
+           "c3n": ("cosmos3_nano", 4, 120, [("kveln", 8, 5, 24, 5.0417)]),
+           # 2026-11-06 (user, RunPod): VACE C2-g and C2-turn on its window, ~275 s per copy on an A40 (2.2x a 4090)
+           "c3w": ("vace13", 6, 275, [("kcontv", 16, 7, 16, 5.0625), ("kturnv", 8, 2.5, 16, 5.0625)])}
+C3_SETS = {"kcontl": [f"kcontl_{i:02d}" for i in range(10)], "kcontv": [f"kcontv_{i:02d}" for i in range(10)]}     | {s: [f"{s}_{b}" for b in KVEL_BASES] for s in ("kvelv", "kturnc", "kturnl", "kveln", "kturnv")}
 
 
 def _c3_jobs():

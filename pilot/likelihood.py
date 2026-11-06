@@ -2,9 +2,9 @@
 
 Each scene base has variants that share the input window and differ after it:
   kcont (C2-g, Cosmos): gravity switches to k x g at the end of the window, k in {0.25 ... 4}
-  kcontl (C2-g, LTX): the same with the switch at the end of LTX's window
+  kcontl / kcontv (C2-g, LTX / VACE): the same with the switch at the end of that model's window
   kvelc / kvell / kvelv / kveln (C2, Cosmos-2B and -14B / LTX / VACE / Cosmos 3 Nano): the velocity is scaled by k in {0.5, 0.8, 1, 1.25, 2} (VEL_SETS)
-  kturnc / kturnl (C2-turn, Cosmos / LTX): the velocity turns by k in {0, 30, 180} degrees, same speed (TURN_SETS)
+  kturnc / kturnl / kturnv (C2-turn, Cosmos / LTX / VACE): the velocity turns by k in {0, 30, 180} degrees, same speed (TURN_SETS)
 For each variant: loss ||v_pred - (eps - x0)||^2 on the continuation latent frames (window frames clean for Cosmos and
 LTX; VACE noises all frames and gets the window through its context), averaged over noise levels and fixed noise draws (identical across a base's variants). Per base: the implied multiplier (minimum
 of a parabola in ln k), its symmetric MRA against the true k = 1, and the share of altered variants with a higher loss
@@ -34,7 +34,7 @@ from pilot.track import load_video
 
 RENDER = {"kcont": (16, 5.8125), "kvelc": (16, 5.8125), "kturnc": (16, 5.8125),     # fps, seconds: >= the model's clip
           "kvell": (24, 5.0417), "kturnl": (24, 5.0417), "kcontl": (24, 5.0417), "kvelv": (16, 5.0625),
-          "kveln": (24, 5.0417)}
+          "kveln": (24, 5.0417), "kturnv": (16, 5.0625), "kcontv": (16, 5.0625)}
 
 
 class CosmosLoss:

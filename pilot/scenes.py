@@ -408,27 +408,30 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
             out["kcont"].append(c)
     # C2 (2026-11-03): every kmain scene with its velocity scaled from the end of a model's input window on, no new draws.
     # 2026-11-04: VACE's window (kvelv), the same scenes turned instead of scaled (kturn*), kcont at LTX's window (kcontl).
+    # 2026-11-06: VACE's turn and gravity-switch sets (kturnv, kcontv).
     for name, model in VEL_SETS.items():
         out[name] = switch_copies(out["kmain"], name, cfg["models"][model], cam, cfg, "vswitch", "v_scale", V_SCALES)
     for name, model in TURN_SETS.items():
         c = switch_copies(out["kmain"], name, cfg["models"][model], cam, cfg, "vturn", "turn_deg", TURN_DEGS)
         # a ball falls at ~3 m/s at the turn: 30 degrees flings it sideways out of frame (in frame 0.31), so cv only
         out[name] = [s for s in c if not (s["family"] != "cv" and s["gt"]["turn_deg"] == 30)]
-    ltx = cfg["models"]["ltx2b"]
-    t_l = ltx["cond_frames"] / ltx["fps"]
-    out["kcontl"] = []
-    for s in out["kcont"]:
-        c = copy.deepcopy(s)
-        c.update(id=s["id"].replace("kcont", "kcontl"), gravity=[(0.0, G), (t_l, c["gravity"][1][1])])
-        c["gt"] = dict(c["gt"], t_switch=t_l, in_frame=_in_frame(c, ltx, cam))
-        set_tracks(c, cam, cfg, strict=False)
-        out["kcontl"].append(c)
+    for name, model in CONT_SETS.items():     # kcont with the switch at another model's window end
+        mc = cfg["models"][model]
+        t_l = mc["cond_frames"] / mc["fps"]
+        out[name] = []
+        for s in out["kcont"]:
+            c = copy.deepcopy(s)
+            c.update(id=s["id"].replace("kcont", name), gravity=[(0.0, G), (t_l, c["gravity"][1][1])])
+            c["gt"] = dict(c["gt"], t_switch=t_l, in_frame=_in_frame(c, mc, cam))
+            set_tracks(c, cam, cfg, strict=False)
+            out[name].append(c)
     return out
 
 
 VEL_SETS = {"kvelc": "cosmos2b", "kvell": "ltx2b", "kvelv": "vace13", "kveln": "cosmos3_nano"}   # C2 scene set: model whose window and clip it uses
 V_SCALES = (0.5, 0.8, 1.0, 1.25, 2.0)
-TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b"}
+TURN_SETS = {"kturnc": "cosmos2b", "kturnl": "ltx2b", "kturnv": "vace13"}
+CONT_SETS = {"kcontl": "ltx2b", "kcontv": "vace13"}
 TURN_DEGS = (0, 30, 180)
 
 

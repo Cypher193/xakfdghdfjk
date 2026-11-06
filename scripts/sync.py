@@ -111,7 +111,7 @@ elif os.environ.get("LTX_JOB"):
     if j.startswith(("c2", "c3")):        # C2 / C2-g: its scene bases' renders (rendered here, except kcont)
         from run_pilot import C2_BASES
         rend = [f"data/renders/{s}/{b}_x*" for s, bs in C2_BASES[j].items() for b in bs]
-        PATTERNS = ["data/scenes/**", "assets_cache/**"] + rend + mine
+        PATTERNS = [f"data/scenes/{s}/**" for s in C2_BASES[j]] + ["assets_cache/**"] + rend + mine   # own sets only
         PUSH_PATTERNS = mine + [r for r in rend if "/kcont/" not in r]
     if j == "rederr":                     # only the listed clips, both score files
         from run_pilot import REDERR_DIRS
@@ -126,6 +126,11 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**", "data/real/**"] + [f"data/renders/{x}/*_input.mp4" for x in scenes if x != "real"] \
             + mine + [f"{r}/*/{f}" for r in LTX_RUNS[j] for f in ("meta.json", "score.json", "video.mp4")]
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
+        from run_pilot import NARROW_PULL     # 2026-11-06 jobs: only the shard's scenes, inputs and clips; every
+        if j in NARROW_PULL:                  # shard's files (~2,700 per pod) hit HF's 429s on parallel setups
+            sets = {s["out"][0]: exps[s["name"].split(":")[0]]["scenes"] for s in gens}
+            PATTERNS = [f"data/scenes/{x}/**" for x in dict.fromkeys(sets.values()) if x != "real"] + ["data/real/**"]                 + mine + [f"data/renders/{sets[s['out'][0]]}/{i}_input.mp4" for s in gens for i in s["ids"]]                 + [f"{s['out'][0]}/{i}_s{sd}/{f}" for s in gens for i in s["ids"] for sd in s["seeds"]
+                   for f in ("meta.json", "score.json", "video.mp4")]
     elif j in MODEL_JOBS:                 # {model}probe: as probe2, for that model's B1 + B5 clips (score_v2: nested --v2)
         m = j.removesuffix("probe")
         PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
