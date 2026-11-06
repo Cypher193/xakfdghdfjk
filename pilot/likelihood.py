@@ -340,7 +340,8 @@ def main():
     import diffusers
     cfg = run_cfg["models"][a.model]
     kw = dict(torch_dtype=torch.bfloat16) | ({"revision": cfg["revision"]} if cfg.get("revision") else {})
-    pipe = getattr(diffusers, cfg["pipeline"]).from_pretrained(cfg["repo"], **kw)
+    from pilot.models import from_pretrained
+    pipe = from_pretrained(getattr(diffusers, cfg["pipeline"]), cfg["repo"], **kw)
     if cfg.get("scheduler"):          # Nano: the sampler and flow shift it generates with (pilot.models.Generator)
         pipe.scheduler = getattr(diffusers, cfg["scheduler"]).from_config(pipe.scheduler.config, flow_shift=cfg["flow_shift"])
     if cfg.get("cpu_offload"):        # Cosmos: its text encoder and guardrail do not fit next to it on a 24 GB card

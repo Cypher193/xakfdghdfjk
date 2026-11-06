@@ -168,8 +168,12 @@ def push():
     if not any(next(ROOT.glob(p), None) for p in PUSH_PATTERNS):    # patterns are globs ("results/p6_vace13*"), not dirs
         print("nothing to push yet", flush=True)
         return
-    HfApi().upload_large_folder(repo_id=repo_id(), repo_type="dataset", folder_path=ROOT,
-                                allow_patterns=PUSH_PATTERNS, ignore_patterns=IGNORE, private=True, print_report=False)
+    api = HfApi()
+    # upload_large_folder pages through every commit of the repo only to warn when there are many (3,660 commits =
+    # ~74 API calls a push); with ~28 pods that used most of HF's 1,000 calls per 5 min (2026-11-06)
+    api.list_repo_commits = lambda *a, **k: []
+    api.upload_large_folder(repo_id=repo_id(), repo_type="dataset", folder_path=ROOT,
+                            allow_patterns=PUSH_PATTERNS, ignore_patterns=IGNORE, private=True, print_report=False)
     print(time.strftime("%H:%M:%S"), "pushed", repo_id(), flush=True)
 
 

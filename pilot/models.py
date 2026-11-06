@@ -176,6 +176,20 @@ INPUTS = {"cosmos25": _cosmos25, "vace_mask": _vace_mask, "ltx_conditions": _ltx
           "cosmos3_omni": _cosmos3_omni}
 
 
+def from_pretrained(cls, src, **kw):
+    """cls.from_pretrained, waiting out HF's API rate limit (429): the Cosmos guardrail's file listing failed a pod's
+    first step on 2026-11-06, and the pod then ended itself with nothing generated."""
+    from huggingface_hub.errors import HfHubHTTPError
+    for attempt in range(12):
+        try:
+            return cls.from_pretrained(src, **kw)
+        except HfHubHTTPError as e:
+            if "429" not in str(e) or attempt == 11:
+                raise
+            print(f"HF rate limit loading {src}, retry {attempt + 1} in 90 s", flush=True)
+            time.sleep(90)
+
+
 class Generator:
     def __init__(self, name, cfg, run_cfg, device="cuda", pipe=None, dtype=DTYPE):
         """pipe: an already-built pipeline (tests use tiny random-weight ones); otherwise loaded from the Hub."""
@@ -189,7 +203,7 @@ class Generator:
             if cfg.get("ignore"):             # repo holds duplicate weight shards: skip them (container disk)
                 from huggingface_hub import snapshot_download
                 src = snapshot_download(src, revision=cfg.get("revision"), ignore_patterns=cfg["ignore"])
-            pipe = getattr(diffusers, cfg["pipeline"]).from_pretrained(src, **kw)
+            pipe = from_pretrained(getattr(diffusers, cfg["pipeline"]), src, **kw)
         if cfg.get("scheduler"):
             pipe.scheduler = getattr(diffusers, cfg["scheduler"]).from_config(pipe.scheduler.config,
                                                                               flow_shift=cfg["flow_shift"])
