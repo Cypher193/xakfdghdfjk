@@ -339,6 +339,18 @@ At the best block/step of each target (from `results/p6_ltx2b_{target}_obj.csv`)
 - **Pods** (`scripts/runpod_launch.py`): the image is unchanged; a start command sets up sshd, clones the repo and runs `scripts/ltx_pod.sh`. HF_TOKEN is the account's RunPod secret. The launcher only terminates pods named `kvs-*` that it created, and terminates a pod at once if it costs more than `--max-price`.
 - **Ending pods:** `finalize.runpod_stop` deletes the pod with RunPod's pod-scoped `RUNPOD_API_KEY` once HF has every file (else stops it), checking the HTTP status, 6 tries. Backstop: `scripts/rpmon.py` on the cheapest vast box (`vast_launch.py rpmon`, about $0.01/h) terminates kvs-* RunPod pods whose final check is verified or whose hard cap (budget + 3 h, in `data/logs/runpod_caps.json`) passed, and destroys verified vast workers still listed. It holds a separate RunPod key that the user revokes after the run.
 
+### H8 result (2026-11-06)
+
+All ten generation shards and `cosmos3_nanoprobe` finished on RunPod, verified on HF, and the pods ended themselves (GraphQL `podTerminate`). H8 says Cosmos 3 Nano's gap is at most half the mean gap of the other three generators. Below, the gap is the nested-CV know-show gap on the CoTracker3 readout (`results/c3_{model}_v2_nested.csv`, `nested` rows; scene-bootstrap 95% CI).
+
+| Target | Nano gap [95% CI] | Cosmos-2B / LTX-2B / VACE-1.3B | Threshold (half the mean) | H8 | Nano detail |
+|---|---|---|---|---|---|
+| hspeed | 0.298 [0.213, 0.379] | 0.414 / 0.227 / 0.459 | 0.183 | FAIL | know 0.688, show 0.445, 57 scenes |
+| g | 0.442 [0.331, 0.550] | 0.601 / 0.460 / 0.746 | 0.301 | FAIL | know 0.843, show 0.385, 30 scenes |
+| e | 0.426 [0.312, 0.538] | 0.218 / 0.189 / 0.321 | 0.121 | FAIL | know 0.962, show 0.483, 30 scenes |
+
+**H8 fails on every target, and the CI's lower bound is above the threshold each time.** Nano's gap on speed and gravity is smaller than Cosmos-2B's and VACE's, but not by half. Part of the smaller speed gap is a weaker probe: Nano knows speed less well (know 0.688 vs 0.75-0.82), while it shows speed and gravity somewhat better (show 0.445 and 0.385, the best of the four). On restitution its gap is the largest of the four, because its bounces are poor (show 0.483). Fewer scenes are measurable for Nano (57 for speed, 30 for g and e), so its CIs are wider.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
