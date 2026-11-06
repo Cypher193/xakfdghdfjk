@@ -351,6 +351,37 @@ All ten generation shards and `cosmos3_nanoprobe` finished on RunPod, verified o
 
 **H8 fails on every target, and the CI's lower bound is above the threshold each time.** Nano's gap on speed and gravity is smaller than Cosmos-2B's and VACE's, but not by half. Part of the smaller speed gap is a weaker probe: Nano knows speed less well (know 0.688 vs 0.75-0.82), while it shows speed and gravity somewhat better (show 0.445 and 0.385, the best of the four). On restitution its gap is the largest of the four, because its bounces are poor (show 0.483). Fewer scenes are measurable for Nano (57 for speed, 30 for g and e), so its CIs are wider.
 
+## G4 re-fit and C2 on Nano and VACE (2026-11-06, deviations D8, D9)
+
+All shards below finished on RunPod, verified on HF, and the pods ended themselves.
+
+### G4 with 8 B5 seeds
+
+B5 seeds 5-7 (jobs `ltx2bhKof2`, `cosmos2bhKof6`) bring LTX-2B and Cosmos-2B to 8 seeds on the 90 kgrav scenes, which is G4's own fail action. The gamma fit is `pilot.analysis gates` on all 720 B5 clips per model; the CI is a scene bootstrap.
+
+| Model | Readout | Before (seeds 0-4) | After (seeds 0-7) | G4 (width <= 0.5) |
+|---|---|---|---|---|
+| LTX-2B | SAM2 | gamma 0.11 [-0.20, 0.42], width 0.62, 201 clips | gamma 0.15 [-0.12, 0.40], width 0.53, 295 clips | FAIL |
+| LTX-2B | CoTracker3 | gamma 0.04 [-1.09, 0.63], width 1.73, 14 clips | gamma 0.15 [-0.38, 0.50], width 0.88, 102 clips | FAIL |
+| Cosmos-2B | SAM2 | gamma 0.80 [0.33, 1.25], width 0.92, 179 clips | gamma 0.92 [0.50, 1.29], width 0.79, 241 clips | FAIL |
+| Cosmos-2B | CoTracker3 | gamma 1.22 [0.09, 2.34], width 2.25, 30 clips | gamma 0.89 [0.59, 1.21], width 0.62, 267 clips | FAIL |
+
+**G4 still fails on both models.** The CIs narrow by 15-70%, but the scene bootstrap is limited by the 90 scenes, not the seeds. The estimates are stable, though. LTX's gamma is near 0.15 with a CI that excludes 1: its fall barely tracks the scene's gravity. Cosmos-2B's gamma is near 0.9 with a CI that includes 1. The other fail action, a 0.25-4 g gravity range, was not run.
+
+### C2 on Nano and VACE (`python scripts/c2_report.py`)
+
+pref_acc is the share of altered copies whose denoising loss is above the true clip's (0.5 = chance); bootstrap CI over bases.
+
+| Test | Model | pref_acc [95% CI] | Bases | Preferred copy (argmin) | Other models |
+|---|---|---|---|---|---|
+| C2 velocity (kveln) | Nano | 0.593 [0.555, 0.632] | 100 | k 0.5: 59, 0.8: 28, 1.0: 12 | LTX 0.733, Cosmos-2B 0.688, VACE 0.517 |
+| C2-turn (kturnv) | VACE | 0.825 [0.745, 0.895] | 100 | no turn: 82, 180 deg: 17 | Cosmos-2B 0.860, LTX 0.735, V-JEPA 0.47-0.62 |
+| C2-g (kcontv) | VACE | 0.533 [0.383, 0.683] | 10 | k >= 2: 7 of 10 (k_implied median 2.40) | Cosmos-2B 0.583, LTX 0.583 |
+
+- **Nano** is above chance on velocity but below both 2B generators. As with Cosmos-2B (k_implied 0.570), its likelihood prefers slow motion: k_implied median 0.584, and slower copies beat the true clip on 75-78% of bases, while faster copies lose 90-100% of the time. It scores 0.68 on constant-velocity bases and 0.505 on constant-acceleration ones.
+- **VACE** detects turns as well as Cosmos-2B (constant velocity 0.99, constant acceleration 0.66). On gravity it is at chance and prefers stronger-than-true gravity, as Cosmos-2B does (k_implied 2.65); 10 bases make this loose.
+- **Across generators,** the likelihood pulls velocity slow (preferred k about 0.5-0.8) and gravity strong (preferred k about 2-2.6), and detects turns well.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
