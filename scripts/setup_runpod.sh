@@ -12,8 +12,8 @@ export HF_HOME=/workspace/hf
 pip install -q -r requirements.txt
 python - <<'EOF'
 import os
-from huggingface_hub import login, snapshot_download
-login(token=os.environ["HF_TOKEN"], add_to_git_credential=False)
+from huggingface_hub import snapshot_download   # HF_TOKEN is read from the environment; login() would call /whoami-v2,
+                                                  # whose strict limit failed relaunched pods' setup (2026-11-06)
 # ~100 GB in total; the text encoders are most of it
 repos = [("nvidia/Cosmos-Predict2.5-2B", "diffusers/base/post-trained"),
          ("Lightricks/LTX-Video-0.9.5", None),
