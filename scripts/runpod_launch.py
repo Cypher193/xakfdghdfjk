@@ -75,11 +75,14 @@ def create(a):
     rows = records() + [rec]
     RECORD.parent.mkdir(parents=True, exist_ok=True)
     RECORD.write_text(json.dumps(rows, indent=1))
-    print(f"created {p['id']} {rec['name']} {a.gpu} ${cost:.3f}/h, hard cap {rec['terminate_after']}")
     if cost > a.max_price:
         terminate_one(p["id"], f"price ${cost:.3f}/h above --max-price {a.max_price}")
-    live = {q["id"] for q in pods()}
-    push_caps([x for x in rows if x["id"] in live])
+    try:                                   # an HF limit here must not read as a failed create (a caller then retried
+        live = {q["id"] for q in pods()}   # on another GPU and made a duplicate pod, 2026-11-06)
+        push_caps([x for x in rows if x["id"] in live])
+    except Exception as e:
+        print(f"caps not pushed ({type(e).__name__}: {str(e)[:80]}); push them later", flush=True)
+    print(f"created {p['id']} {rec['name']} {a.gpu} ${cost:.3f}/h, hard cap {rec['terminate_after']}")   # last line
 
 
 def pods():
