@@ -398,6 +398,28 @@ B1 (video) minus B2-nl (text in words), per scene, scene bootstrap 95% CI; H2 as
 
 **H2 holds at 14B:** video beats text on speed and gravity by 0.19-0.54 MRA under both trackers and both scorings, every CI above 0.10. Text-only speed is near 0 (0.007-0.032), as at 2B. Nano passes on speed; its gravity result rests on 6-9 measurable scenes and vanishes under strict scoring. Measurable shares: 14B B1 0.78 / 0.76 (SAM2 / CoTracker3), B2-nl 0.85 / 0.52; Nano B1 0.54 / 0.43.
 
+### H6 result: Cosmos-14B against Cosmos-2B (2026-11-06)
+
+`cosmos14bprobe` ran on a RunPod CPU-only pod (cpu3g, 16 vCPU, 64 GB, $0.64/h, `runpod_launch.py --cpu`): the six probes took about 1 min each, the nested gap 5 min, 0.16 h in all; the final check verified on HF and the pod ended itself. Nested-CV gap on the CoTracker3 readout (`results/c3_cosmos14b_v2_nested.csv`):
+
+| Target | 14B know / show / gap [95% CI] | 2B know / show / gap | Probe margin 14B / 2B |
+|---|---|---|---|
+| hspeed | 0.738 / 0.531 / 0.229 [0.163, 0.295], 88 scenes | 0.779 / 0.405 / 0.414 | 0.099 / 0.136 |
+| g | 0.865 / 0.291 / 0.539 [0.466, 0.606], 68 scenes | 0.879 / 0.312 / 0.582 | 0.202 / 0.102 |
+| e | 0.958 / 0.770 / 0.197 [0.162, 0.232], 68 scenes | 0.929 / 0.766 / 0.156 | -0.005 / 0.001 |
+
+H6 (gap(14B) - gap(2B) per scene on the scenes both have, seeds 0-1, scene bootstrap; equivalence needs the CI inside +-0.05):
+
+| Target | Scenes | 14B - 2B [95% CI] | H6 |
+|---|---|---|---|
+| hspeed | 75 | -0.221 [-0.292, -0.152] | FAIL: the 14B gap is smaller |
+| g | 33 | -0.006 [-0.140, 0.122] | FAIL: no difference, CI too wide for equivalence |
+| e | 33 | +0.024 [-0.015, 0.066] | FAIL, narrowly (upper bound 0.066) |
+
+With all three 2B seeds the numbers barely move (hspeed -0.198 [-0.261, -0.140], g -0.084 [-0.213, 0.036], e +0.025 [-0.013, 0.063]).
+
+**H6 fails, and on speed it fails the other way: scale halves the speed gap.** 14B knows speed about as well as 2B (0.74 vs 0.78) but shows it much better (0.53 vs 0.41). On gravity, scale changes neither knowing nor showing; 33 measurable scenes leave the CI too wide to call it equivalent. Restitution is close to equivalent, but neither model's restitution probe beats the input-latent baseline, so that gap is a rendering failure, not hidden knowledge.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
