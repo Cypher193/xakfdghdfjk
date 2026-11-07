@@ -251,6 +251,8 @@ experiments:
   bl3:     {scenes: kl3, text: caption}     # B-L3, B1 input on the two-law scenes
   bl3nl:   {scenes: kl3, text: b2nl, video: false}   # B-L3, B2-nl input
   b5:      {scenes: kgrav, text: caption}
+  b1f:     {scenes: kmainf, text: caption}   # replication (D12): kmain drawn again with another seed
+  b5f:     {scenes: kgravf, text: caption}   # replication (D12): kgrav drawn again with another seed
   bratio:  {scenes: kratio, text: caption}
   bratio2: {scenes: kratio2, text: caption}   # B-ratio with 0.7-0.9 m balls (pilot/scenes.py kratio2)
   b1real:  {scenes: real, text: caption, seeds: [0, 1]}

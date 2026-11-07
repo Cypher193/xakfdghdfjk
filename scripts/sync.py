@@ -131,11 +131,16 @@ elif os.environ.get("LTX_JOB"):
             sets = {s["out"][0]: exps[s["name"].split(":")[0]]["scenes"] for s in gens}
             PATTERNS = [f"data/scenes/{x}/**" for x in dict.fromkeys(sets.values()) if x != "real"] + ["data/real/**"]                 + mine + [f"data/renders/{sets[s['out'][0]]}/{i}_input.mp4" for s in gens for i in s["ids"]]                 + [f"{s['out'][0]}/{i}_s{sd}/{f}" for s in gens for i in s["ids"] for sd in s["seeds"]
                    for f in ("meta.json", "score.json", "video.mp4")]
+            if any(s["name"].startswith("render") for s in MODEL_JOBS[j]):    # replication shards render their inputs
+                PATTERNS += ["assets_cache/**"]
     elif j in MODEL_JOBS:                 # {model}probe: as probe2, for that model's B1 + B5 clips (score_v2: nested --v2)
         m = j.removesuffix("probe")
         PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
                                                 for f in ("acts.npz", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"results/p6_{m}*", f"results/c3_{m}_*"]
+    if j == "freshprobe":                 # replication (D12): b1f / b5f acts + CoTracker3 scores in; probes and gaps out
+        PATTERNS = ["data/scenes/kmainf/**", "data/scenes/kgravf/**"] + mine +             [f"runs/{e}/{m}/*/{f}" for e in ("b1f", "b5f") for m in ("ltx2b", "cosmos2b") for f in ("acts.npz", "meta.json", "score_v2.json")]
+        PUSH_PATTERNS = mine + ["results/p6_*f_*", "results/c3_*f_*"]
     if j == "wrapup":                     # score files + meta of every clip, earlier results; gates reports out
         from run_pilot import STATS_MODELS, WRAPUP_EXPS
         PATTERNS = ["data/scenes/**", "data/real/**", "results/**"] + mine +             [f"runs/{e}/{m}/*/{f}" for e in WRAPUP_EXPS for m in STATS_MODELS for f in ("meta.json", "score.json", "score_v2.json")]

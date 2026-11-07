@@ -143,6 +143,7 @@ if __name__ == "__main__":
     ap.add_argument("--exps", nargs="+", default=["b1"])
     ap.add_argument("--target", required=True, help="v, vx, g or e")
     ap.add_argument("--pool", default="obj", choices=["obj", "all"])
+    ap.add_argument("--out", help="default results/p6_{model}_{target}_{pool}.csv")
     a = ap.parse_args()
     Path("results").mkdir(exist_ok=True)
-    run(a.runs, a.model, a.exps, a.target, f"results/p6_{a.model}_{a.target}_{a.pool}.csv", a.pool)
+    run(a.runs, a.model, a.exps, a.target, a.out or f"results/p6_{a.model}_{a.target}_{a.pool}.csv", a.pool)

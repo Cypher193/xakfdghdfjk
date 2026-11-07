@@ -435,6 +435,20 @@ CONT_SETS = {"kcontl": "ltx2b", "kcontv": "vace13", "kcontn": "cosmos3_nano"}
 TURN_DEGS = (0, 30, 180)
 
 
+def fresh_sets(cfg, seed):
+    """Replication (2026-11-07, D12): kmain and kgrav drawn again from another seed, as kmainf / kgravf (ids kmainf_cv_00,
+    kgravf_00_g0.5); same families, ranges and counts, new draws."""
+    sets = build(cfg, seed)
+    out = {}
+    for old, new in (("kmain", "kmainf"), ("kgrav", "kgravf")):
+        out[new] = []
+        for s in sets[old]:
+            s = copy.deepcopy(s)
+            s["id"] = s["id"].replace(old, new, 1)
+            out[new].append(s)
+    return out
+
+
 def _in_frame(scene, mcfg, cam):
     """Share of the model's clip frames with the object centre in frame."""
     u, v = project(cam, *object_track(scene, scene["objects"][0], np.arange(mcfg["num_frames"]) / mcfg["fps"]))
@@ -464,9 +478,10 @@ if __name__ == "__main__":
     ap.add_argument("--config", default="configs/pilot.yaml")
     ap.add_argument("--out", default="data/scenes")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--fresh", type=int, help="write only the replication sets kmainf / kgravf, drawn with this seed")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
-    sets = build(cfg, a.seed)
+    sets = fresh_sets(cfg, a.fresh) if a.fresh is not None else build(cfg, a.seed)
     for name, scenes in sets.items():
         d = Path(a.out) / name
         d.mkdir(parents=True, exist_ok=True)

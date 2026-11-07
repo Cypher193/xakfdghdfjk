@@ -334,6 +334,33 @@ for _m, (_n, _ps, _p, _blocks) in EXTRA.items():
 _jobs = _round3_jobs("cosmos3_nano", 5, 270, [("b5", None, [2, 3, 4])], "v", ("sam2", "cotracker3"))
 MODEL_JOBS |= _jobs
 NARROW_PULL |= set(_jobs)
+# Replication (2026-11-07, user, RunPod; D12): kmain and kgrav drawn again with seed 7 as kmainf / kgravf
+# (`python -m pilot.scenes --fresh 7`). Shard K/10 renders its input windows, then LTX-2B (seeds 0-1) and Cosmos-2B
+# (seed 0) generate B1 (b1f) and B5 (b5f), and both trackers score. `freshprobe`: probes + nested gap on a CPU pod.
+FRESH_N = 10
+FRESH_IDS = {"kmainf": sorted(f"kmainf_{f}_{i:02d}" for f in ("ca", "cv") for i in range(50)),
+             "kgravf": sorted(f"kgravf_{i:02d}_g{g}" for i in range(30) for g in (0.5, 1.0, 2.0))}
+for _k in range(1, FRESH_N + 1):
+    _sh, _name = f"{_k}/{FRESH_N}", f"fresh{_k}of{FRESH_N}"
+    _ids = {e: FRESH_IDS[st][_k - 1::FRESH_N] for e, st in (("b1f", "kmainf"), ("b5f", "kgravf"))}
+    _steps = [dict(name=f"render-in:{st}", kind="cmd", est_s=60 * len(_ids[e]), cmd=[
+                  "bash", "-c", f"python -m pilot.shard --exp {e} --shard {_sh} --write-shard data/shard_{st} && "
+                                f"${{BPY_PYTHON:-/opt/bpy/bin/python}} -m pilot.render data/shard_{st} --out data/renders/{st} --gpu --fps 48 --seconds 1.125 --suffix _input"])
+              for e, st in (("b1f", "kmainf"), ("b5f", "kgravf"))]
+    _steps += [gen(m, e, None, sd, shard=_sh, ids=_ids[e]) | dict(per_s=ps)
+               for m, sd, ps in (("ltx2b", [0, 1], 80), ("cosmos2b", [0], 650)) for e in ("b1f", "b5f")]
+    _n = sum(st.get("clips", 0) for st in _steps)
+    _steps += [cmd(f"score:{_name}:{tr}", ["-m", "pilot.score", "--models", "ltx2b", "cosmos2b", "--tracker", tr, "--table",
+                                           f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 10 * _n)
+               for tr in ("sam2", "cotracker3")]
+    MODEL_JOBS[_name] = _steps
+    NARROW_PULL.add(_name)
+MODEL_JOBS["freshprobe"] = [cmd(f"probe:{m}f:{t}:{'+'.join(e)}:{pool}",
+                                ["-m", "pilot.probe", "--model", m, "--exps", *e, "--target", t, "--pool", pool,
+                                 "--out", f"results/p6_{m}f_{t}_{pool}.csv"], 300 * len(e) ** 2)
+                            for m in ("ltx2b", "cosmos2b")
+                            for e, t in ((["b1f"], "hspeed"), (["b1f", "b5f"], "g"), (["b1f", "b5f"], "e")) for pool in ("obj", "all")] +     [cmd(f"nested:{m}f", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--fresh", "--model", m], 3600)
+     for m in ("ltx2b", "cosmos2b")]
 MODEL_JOBS["cosmos3_nanosmoke"] = [
     gen("cosmos3_nano", "b1", 20, [0], shard="9/10", ids=kmain_ids(9, 10, 20)) | dict(per_s=270)] + [   # cv_04, cv_09
     cmd(f"score:cosmos3_nanosmoke:{tr}", ["-m", "pilot.score", "--models", "cosmos3_nano", "--tracker", tr, "--table",

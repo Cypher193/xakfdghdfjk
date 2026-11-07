@@ -134,3 +134,10 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 - **What changes (user, 2026-11-07, RunPod):** Cosmos-14B C2-g on kcont (10 bases, jobs `c3gKof5`) and C2-turn on kturnc (100 bases, jobs `c3tKof8`), on the renders Cosmos-2B used (same window and clip, so no render step); Cosmos 3 Nano B5 seeds 2-4 on its 90 kgrav scenes (jobs `cosmos3_nanovKof5`).
 - **Why:** complete the 14B column of the C2 tables next to the H6 scale result, and tighten Nano's gravity slope.
 - **What is not changed:** the copies, noise levels and draws per copy, the scoring and the summaries.
+
+## D12: replication on fresh scenes (2026-11-07)
+
+- **What changes (user, 2026-11-07, RunPod):** the main (kmain, 100) and gravity (kgrav, 90) sets drawn again with seed 7 (`python -m pilot.scenes --fresh 7`) as kmainf / kgravf: same families, parameter ranges and counts, new draws. Experiments b1f / b5f (configs/pilot.yaml).
+- **How:** jobs `freshKof10`: each shard renders its input windows, then LTX-2B (seeds 0-1) and Cosmos-2B (seed 0) generate B1 and B5, and SAM2 and CoTracker3 score. `freshprobe` (CPU pod): the same probes, then the nested-CV gap (`pilot.analysis nested --v2 --fresh`), written to `results/p6_{model}f_*` and `results/c3_{model}f_v2_*`.
+- **Why:** every earlier result is on one scene set the pipeline was built on; this checks that the know-show gap replicates on scenes it never saw. VACE is not rerun (budget and deadline).
+- **What is not changed:** the generators, windows, captions, trackers, probes, nested CV and the gap definition.

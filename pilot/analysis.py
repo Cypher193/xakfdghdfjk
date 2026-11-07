@@ -84,9 +84,12 @@ def show(exp, model=None, score=None):
     return df
 
 
-def best(target, tag=""):
+TAG = ""                     # "f" under --fresh (replication sets, D12)
+
+
+def best(target, tag=None):
     """Best mid-network probe row (max sym MRA over blocks and steps) of results/p6_{model}{tag}_{target}_obj.csv."""
-    d = pd.read_csv(f"results/p6_{M}{tag}_{target}_obj.csv")
+    d = pd.read_csv(f"results/p6_{M}{TAG if tag is None else tag}_{target}_obj.csv")
     d = d[(d.block >= 0) & d.feature.str.endswith("/obj") & ~d.feature.str.startswith("vae/")]
     return d.loc[d.sym_mra.idxmax()]
 
@@ -539,8 +542,12 @@ if __name__ == "__main__":
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--model", default="ltx2b")
     ap.add_argument("--v2", action="store_true", help="show side from score_v2.json (CoTracker3 readout)")
+    ap.add_argument("--fresh", action="store_true", help="replication sets: exps b1f / b5f, probes p6_{model}f (D12)")
     a = ap.parse_args()
-    M, OUT, SCORE = a.model, f"results/c3_{a.model}{'_v2' * a.v2}_", "score_v2.json" if a.v2 else "score.json"
+    TAG = "f" * a.fresh
+    M, OUT, SCORE = a.model, f"results/c3_{a.model}{TAG}{'_v2' * a.v2}_", "score_v2.json" if a.v2 else "score.json"
+    if a.fresh:
+        TARGET_EXPS = {t: [e + "f" for e in es] for t, es in TARGET_EXPS.items()}
     fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), c9c=lambda: c9(exp="c9c"), gates=gates,
                selftest=selftest, g1b=g1b, nested=nested)
     for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "c9c", "gates"]) if a.cmd == "all" else [a.cmd]:
