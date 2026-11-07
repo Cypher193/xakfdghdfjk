@@ -128,3 +128,9 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 - **How:** jobs `c3mKof3` (render on the pod, then `pilot.likelihood` with `NanoLoss`), on vast 48 GB cards.
 - **Then (user, 2026-11-07, vast):** Nano B2-nl seed 1 (jobs `cosmos3_nanouKof2`), so H2 at Nano has two text-only seeds like the other models.
 - **What is not changed:** the copies (turn 0 / 30 / 180 degrees; gravity x0.25-4), the passes per copy, the summary (`scripts/c2_report.py`).
+
+## D11: 14B C2-g and C2-turn, Nano B5 seeds 2-4 (2026-11-07)
+
+- **What changes (user, 2026-11-07, RunPod):** Cosmos-14B C2-g on kcont (10 bases, jobs `c3gKof5`) and C2-turn on kturnc (100 bases, jobs `c3tKof8`), on the renders Cosmos-2B used (same window and clip, so no render step); Cosmos 3 Nano B5 seeds 2-4 on its 90 kgrav scenes (jobs `cosmos3_nanovKof5`).
+- **Why:** complete the 14B column of the C2 tables next to the H6 scale result, and tighten Nano's gravity slope.
+- **What is not changed:** the copies, noise levels and draws per copy, the scoring and the summaries.

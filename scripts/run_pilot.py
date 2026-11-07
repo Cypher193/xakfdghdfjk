@@ -330,6 +330,10 @@ for _m, (_n, _ps, _p, _blocks) in EXTRA.items():
     _jobs = _round3_jobs(_m, _n, _ps, _blocks, _p, ("sam2", "cotracker3"))
     MODEL_JOBS |= _jobs
     NARROW_PULL |= set(_jobs)
+# 2026-11-07 (user, RunPod): Nano B5 seeds 2-4 (cosmos3_nanovKof5) on its 90 kgrav scenes, A40
+_jobs = _round3_jobs("cosmos3_nano", 5, 270, [("b5", None, [2, 3, 4])], "v", ("sam2", "cotracker3"))
+MODEL_JOBS |= _jobs
+NARROW_PULL |= set(_jobs)
 MODEL_JOBS["cosmos3_nanosmoke"] = [
     gen("cosmos3_nano", "b1", 20, [0], shard="9/10", ids=kmain_ids(9, 10, 20)) | dict(per_s=270)] + [   # cv_04, cv_09
     cmd(f"score:cosmos3_nanosmoke:{tr}", ["-m", "pilot.score", "--models", "cosmos3_nano", "--tracker", tr, "--table",
@@ -497,6 +501,16 @@ for _k in range(1, 7):
     C2_BASES[_name] = {"kvelc": [f"kvelc_{b}" for b in KVEL_BASES][_k - 1::12]}
     C2_JOBS[_name] = [_likelihood("cosmos14b", "kvelc", f"{_k}/12", _name, 8, len(C2_BASES[_name]["kvelc"]) * 5 * 350)]
     LTX_RUNS[_name] = []
+# 2026-11-07 (user, RunPod): Cosmos-14B C2-g on kcont (c3gKof5) and C2-turn on kturnc (c3tKof8), on the Cosmos-2B renders
+# (same window and clip), so no render step. ~650 s per copy at 8 noise levels on an A40 (c3b, measured)
+for _pre, _set, _n, _sig, _bases in (("c3g", "kcont", 5, 16, [f"kcont_{i:02d}" for i in range(10)]),
+                                     ("c3t", "kturnc", 8, 8, [f"kturnc_{b}" for b in KVEL_BASES])):
+    for _k in range(1, _n + 1):
+        _name = f"{_pre}{_k}of{_n}"
+        C2_BASES[_name] = {_set: _bases[_k - 1::_n]}
+        _copies = len(C2_BASES[_name][_set]) * (7 if _set == "kcont" else 2.5)
+        C2_JOBS[_name] = [_likelihood("cosmos14b", _set, f"{_k}/{_n}", _name, _sig, _copies * 650 * _sig / 8)]
+        LTX_RUNS[_name] = []
 # V-JEPA 2 (2026-11-05, docs/phase3.md "V-JEPA 2"): C1 acts on the B1 / B5 input windows, C2 / C2-g surprise on the
 # rendered kvelv / kturnl / kcontl sets, probes, C3 gamma per layer; both sizes on one RTX 4090, existing renders only
 VJEPA_MODELS = ("vjepa2l", "vjepa2g")
