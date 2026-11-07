@@ -423,6 +423,21 @@ With all three 2B seeds the numbers barely move (hspeed -0.198 [-0.261, -0.140],
 
 **H6 fails, and on speed it fails the other way: scale halves the speed gap.** 14B knows speed about as well as 2B (0.74 vs 0.78) but shows it much better (0.53 vs 0.41). On gravity, scale changes neither knowing nor showing; 33 measurable scenes leave the CI too wide to call it equivalent. Restitution is close to equivalent, but neither model's restitution probe beats the input-latent baseline, so that gap is a rendering failure, not hidden knowledge.
 
+## Replication on fresh scenes (2026-11-07, D12)
+
+kmain and kgrav drawn again with seed 7 (kmainf 100, kgravf 90; same families, ranges and counts). LTX-2B (seeds 0-1) and Cosmos-2B (seed 0) generated B1 and B5 on them (jobs `freshKof10`, RunPod, all 10 verified), then `freshprobe` (CPU pod) ran the same probes and the nested-CV gap on the CoTracker3 readout (`results/c3_{model}f_v2_nested.csv`, `results/p6_{model}f_*`). Original = the same analysis on kmain / kgrav (`results/c3_{model}_v2_nested.csv`).
+
+| Model | Target | Fresh know / show / gap [95% CI] | Scenes | Probe margin | Original gap [95% CI] |
+|---|---|---|---|---|---|
+| LTX-2B | hspeed | 0.824 / 0.678 / 0.175 [0.105, 0.249] | 63 | 0.248 | 0.233 [0.157, 0.311] |
+| LTX-2B | g | 0.748 / 0.290 / 0.448 [0.283, 0.607] | 19 | 0.187 | 0.497 [0.375, 0.615] |
+| LTX-2B | e | 0.969 / 0.757 / 0.243 [0.143, 0.370] | 19 | -0.003 | 0.185 [0.118, 0.254] |
+| Cosmos-2B | hspeed | 0.768 / 0.469 / 0.299 [0.209, 0.390] | 73 | 0.191 | 0.414 [0.352, 0.477] |
+| Cosmos-2B | g | 0.854 / 0.281 / 0.581 [0.500, 0.658] | 46 | 0.195 | 0.582 [0.494, 0.668] |
+| Cosmos-2B | e | 0.961 / 0.763 / 0.186 [0.145, 0.229] | 46 | -0.003 | 0.156 [0.111, 0.201] |
+
+**H1 replicates on scenes the pipeline was never built on.** Speed and gravity pass in both models (gap >= 0.10 with CI above 0, probe margin >= 0.05 over VAE and control, Holm p < 0.001). The gravity gap is nearly unchanged; the speed gap is 0.06-0.12 smaller than on the original set, its CI still well above 0.10. Restitution again shows a gap with no probe margin over the input latents: a rendering failure, not hidden knowledge. VACE was not rerun.
+
 ## Deferred (user, 2026-10-26)
 
 1. **B-ratio failure breakdown** (about $0.3 GPU): per clip and per ball, count split, recoloured, shrinking, off-frame and vanished, from the SAM2 masks. This puts numbers on the D2 finding. Covered by job `rescore` (`results/faults_ltx_rescore.csv`, exp bratio2).
