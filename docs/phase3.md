@@ -376,11 +376,14 @@ pref_acc is the share of altered copies whose denoising loss is above the true c
 |---|---|---|---|---|---|
 | C2 velocity (kveln) | Nano | 0.593 [0.555, 0.632] | 100 | k 0.5: 59, 0.8: 28, 1.0: 12 | LTX 0.733, Cosmos-2B 0.688, VACE 0.517 |
 | C2 velocity (kvelc) | Cosmos-14B | 0.668 [0.587, 0.745] | 52 | k 0.5: 21, 0.8: 6, 1.0: 18, 1.25: 7 | Cosmos-2B on the same 52 bases 0.702; 14B - 2B = -0.034 [-0.101, 0.034] |
+| C2-turn (kturnn) | Nano | 0.890 [0.820, 0.950] | 100 | no turn: 89, 180 deg: 11 | VACE 0.825, Cosmos-2B 0.860, LTX 0.735 |
+| C2-g (kcontn) | Nano | 0.633 [0.483, 0.783] | 10 | k >= 2: 8 of 10 (k_implied median 2.15) | VACE 0.533, Cosmos-2B 0.583, LTX 0.583 |
 | C2-turn (kturnv) | VACE | 0.825 [0.745, 0.895] | 100 | no turn: 82, 180 deg: 17 | Cosmos-2B 0.860, LTX 0.735, V-JEPA 0.47-0.62 |
 | C2-g (kcontv) | VACE | 0.533 [0.383, 0.683] | 10 | k >= 2: 7 of 10 (k_implied median 2.40) | Cosmos-2B 0.583, LTX 0.583 |
 
 - **Nano** is above chance on velocity but below both 2B generators. As with Cosmos-2B (k_implied 0.570), its likelihood prefers slow motion: k_implied median 0.584, and slower copies beat the true clip on 75-78% of bases, while faster copies lose 90-100% of the time. It scores 0.68 on constant-velocity bases and 0.505 on constant-acceleration ones.
 - **Cosmos-14B** (shards 1-6 of 12 of kvelc, jobs `c3bKof6`) scores the same as Cosmos-2B on the same bases: 7x the parameters buys no better velocity likelihood. Its slow bias is weaker (k_implied median 0.736 vs 0.570; 18 of 52 bases prefer the true clip), and it splits the families the same way (constant velocity 0.846, constant acceleration 0.49). Every shard was OOM-killed once at the A40 pod's 50 GB RAM and relaunched with the prompts encoded first and the text encoder freed (7aa6239); rows already written were kept.
+- **Nano** (vast, jobs `c3mKof3`, D10; all 3 verified on HF, about $10) detects turns best of all generators (constant velocity 1.00, constant acceleration 0.78), and on gravity, like the others, sits near chance and prefers stronger-than-true gravity.
 - **VACE** detects turns as well as Cosmos-2B (constant velocity 0.99, constant acceleration 0.66). On gravity it is at chance and prefers stronger-than-true gravity, as Cosmos-2B does (k_implied 2.65); 10 bases make this loose.
 - **Across generators,** the likelihood pulls velocity slow (preferred k about 0.5-0.8) and gravity strong (preferred k about 2-2.6), and detects turns well.
 
