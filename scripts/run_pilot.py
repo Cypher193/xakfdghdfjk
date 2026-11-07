@@ -323,7 +323,8 @@ for _p, (_n, _blocks) in NANO.items():
 # 2026-11-06 (user, RunPod): the G4 fix, B5 seeds 5-7 on LTX and Cosmos-2B (configs/gates.yaml's fail rule: 8 seeds), and
 # 14B B2-nl seed 1 (deferred 2026-11-05). per_s: A40 / A5000 guesses (3090: Cosmos-2B 619 s, LTX 69 s; 14B A40 ~1900 s).
 EXTRA = {"ltx2b": (2, 80, "h", [("b5", None, [5, 6, 7])]), "cosmos2b": (6, 650, "h", [("b5", None, [5, 6, 7])]),
-         "cosmos14b": (6, 1900, "u", [("b2nl", None, [1])])}
+         "cosmos14b": (6, 1900, "u", [("b2nl", None, [1])]),
+         "cosmos3_nano": (2, 270, "u", [("b2nl", None, [1])])}     # 2026-11-07 (user, vast): Nano B2-nl seed 1 (D10)
 NARROW_PULL = set()                   # sync.py pulls only these jobs' own shard files
 for _m, (_n, _ps, _p, _blocks) in EXTRA.items():
     _jobs = _round3_jobs(_m, _n, _ps, _blocks, _p, ("sam2", "cotracker3"))

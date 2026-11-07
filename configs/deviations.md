@@ -126,4 +126,5 @@ Each entry: what changed, when, whether the data had been seen, and why. Thresho
 
 - **What changes (user, 2026-11-06: spend the vast credit down to about $8 on the smaller experiments):** C2-turn and C2-g on Cosmos 3 Nano, on its own window (5 frames at 24 fps, 0.208 s): new scene sets kturnn (250) and kcontn (70), made the same way as kturnv / kcontv. Every existing set regenerates byte-identical.
 - **How:** jobs `c3mKof3` (render on the pod, then `pilot.likelihood` with `NanoLoss`), on vast 48 GB cards.
+- **Then (user, 2026-11-07, vast):** Nano B2-nl seed 1 (jobs `cosmos3_nanouKof2`), so H2 at Nano has two text-only seeds like the other models.
 - **What is not changed:** the copies (turn 0 / 30 / 180 degrees; gravity x0.25-4), the passes per copy, the summary (`scripts/c2_report.py`).
