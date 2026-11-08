@@ -198,6 +198,25 @@ def nested(n_jobs=-1):
     return df
 
 
+# ---------------------------------------------------------------- C3 gamma per block (H3)
+def _gamma_one(X, y, g, k, b, s):
+    pred = np.exp(probe.cv_predict(X, np.log(y), g))
+    sl, (lo, hi) = metrics.gamma_fit(pred, y, groups=g)
+    return dict(feature=k, block=b, step=s, gamma=sl, lo=lo, hi=hi, sym_mra=float(metrics.sym_mra(pred, y).mean()), n=len(y))
+
+
+def gamma_blocks(n_jobs=-1):
+    """H3 (proposal v5): probes trained on B5 across the three gravity values, out-of-fold by scene, gamma of the
+    predicted g against the true g at every block and step (object tokens, as candidates()); no tracker involved.
+    -> results/c3_{model}_gamma.csv"""
+    feats, y, g = probe.load(str(RUN), M, ["b5"], "g")
+    rows = Parallel(n_jobs)(delayed(_gamma_one)(feats[k][b, s], y, g, k, b, s) for k, b, s in candidates(feats))
+    df = pd.DataFrame(rows)
+    df.to_csv(f"results/c3_{M}_gamma.csv", index=False)
+    print(df.sort_values(["feature", "step", "block"]).to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    return df
+
+
 # ---------------------------------------------------------------- C5
 def pooled_latent(c):
     import torch
@@ -538,7 +557,7 @@ def selftest():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["fetch", "gap", "nested", "c5", "c6", "c9", "c9b", "c9c", "gates", "all", "selftest",
-                                    "g1b"])
+                                    "g1b", "gamma"])
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--model", default="ltx2b")
     ap.add_argument("--v2", action="store_true", help="show side from score_v2.json (CoTracker3 readout)")
@@ -549,7 +568,7 @@ if __name__ == "__main__":
     if a.fresh:
         TARGET_EXPS = {t: [e + "f" for e in es] for t, es in TARGET_EXPS.items()}
     fns = dict(fetch=fetch, gap=gap, c5=c5, c6=c6, c9=c9, c9b=lambda: c9(exp="c9b"), c9c=lambda: c9(exp="c9c"), gates=gates,
-               selftest=selftest, g1b=g1b, nested=nested)
+               selftest=selftest, g1b=g1b, nested=nested, gamma=gamma_blocks)
     for name in (["fetch"] * (not a.no_fetch) + ["gap", "c5", "c6", "c9", "c9b", "c9c", "gates"]) if a.cmd == "all" else [a.cmd]:
         print(f"\n=== {name} ===", flush=True)
         try:

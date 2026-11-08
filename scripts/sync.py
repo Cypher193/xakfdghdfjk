@@ -138,6 +138,10 @@ elif os.environ.get("LTX_JOB"):
         PATTERNS = ["data/scenes/**"] + mine + [f"runs/{e}/{m}/*/{f}" for e in ("b1", "b5")
                                                 for f in ("acts.npz", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + [f"results/p6_{m}*", f"results/c3_{m}_*"]
+    if j == "gammaprobe":                 # H3: every generator's B5 acts in, per-block probe gamma out
+        from run_pilot import GAMMA_MODELS
+        PATTERNS = ["data/scenes/kgrav/**"] + mine + [f"runs/b5/{m}/*/{f}" for m in GAMMA_MODELS for f in ("acts.npz", "meta.json")]
+        PUSH_PATTERNS = mine + ["results/c3_*_gamma.csv"]
     if j == "freshprobe":                 # replication (D12): b1f / b5f acts + CoTracker3 scores in; probes and gaps out
         PATTERNS = ["data/scenes/kmainf/**", "data/scenes/kgravf/**"] + mine +             [f"runs/{e}/{m}/*/{f}" for e in ("b1f", "b5f") for m in ("ltx2b", "cosmos2b") for f in ("acts.npz", "meta.json", "score_v2.json")]
         PUSH_PATTERNS = mine + ["results/p6_*f_*", "results/c3_*f_*"]

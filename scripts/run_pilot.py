@@ -355,6 +355,10 @@ for _k in range(1, FRESH_N + 1):
                for tr in ("sam2", "cotracker3")]
     MODEL_JOBS[_name] = _steps
     NARROW_PULL.add(_name)
+# H3 (2026-11-08, user, vast): probe gamma per block on every generator's B5 activations (CPU, no tracker)
+GAMMA_MODELS = ("ltx2b", "cosmos2b", "vace13", "cosmos14b", "cosmos3_nano")
+MODEL_JOBS["gammaprobe"] = [cmd(f"gamma:{m}", ["-m", "pilot.analysis", "gamma", "--no-fetch", "--model", m], 1800)
+                            for m in GAMMA_MODELS]
 MODEL_JOBS["freshprobe"] = [cmd(f"probe:{m}f:{t}:{'+'.join(e)}:{pool}",
                                 ["-m", "pilot.probe", "--model", m, "--exps", *e, "--target", t, "--pool", pool,
                                  "--out", f"results/p6_{m}f_{t}_{pool}.csv"], 300 * len(e) ** 2)
