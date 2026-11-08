@@ -212,6 +212,7 @@ def gamma_blocks(n_jobs=-1):
     feats, y, g = probe.load(str(RUN), M, ["b5"], "g")
     rows = Parallel(n_jobs)(delayed(_gamma_one)(feats[k][b, s], y, g, k, b, s) for k, b, s in candidates(feats))
     df = pd.DataFrame(rows)
+    Path("results").mkdir(exist_ok=True)              # a pod that pulls no results has no results/ dir
     df.to_csv(f"results/c3_{M}_gamma.csv", index=False)
     print(df.sort_values(["feature", "step", "block"]).to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     return df
