@@ -423,6 +423,18 @@ With all three 2B seeds the numbers barely move (hspeed -0.198 [-0.261, -0.140],
 
 **H6 fails, and on speed it fails the other way: scale halves the speed gap.** 14B knows speed about as well as 2B (0.74 vs 0.78) but shows it much better (0.53 vs 0.41). On gravity, scale changes neither knowing nor showing; 33 measurable scenes leave the CI too wide to call it equivalent. Restitution is close to equivalent, but neither model's restitution probe beats the input-latent baseline, so that gap is a rendering failure, not hidden knowledge.
 
+## 14B C2-turn and C2-g, Nano gamma (2026-11-07, D11)
+
+All shards verified on HF by 21:34 UTC (jobs `c3tKof8`, `c3gKof5`, `cosmos3_nanovKof5`; RunPod A40 / A6000).
+
+| Test | Cosmos-14B pref_acc [95% CI] | Bases | Preferred copy | Cosmos-2B (same set) |
+|---|---|---|---|---|
+| C2-turn (kturnc) | 0.823 [0.747, 0.894] | 99 (kturnc_cv_48 missing in shard 3) | no turn 81, 180 deg 17 | 0.860 [0.790, 0.920] |
+| C2-g (kcont) | 0.667 [0.550, 0.783] | 10 | k = 4: 6 of 10 (k_implied median 2.49) | 0.583 [0.467, 0.700], k_implied 2.65 |
+
+- **Scale does not change the likelihood tests.** 14B detects turns as well as 2B (constant velocity 0.99, constant acceleration 0.66), and still prefers gravity well above the truth: weaker gravity copies lose every time (k 0.25-0.5: 1.00), stronger ones mostly win (k 2-4: 0.2-0.4). With H6 (scale halves the speed gap but not the gravity gap), the strong-gravity bias holds across a 7x size range.
+- **Nano B5 seeds 2-4 (G):** gamma with 5 seeds is 1.37 [0.69, 2.09] (SAM2, 90 measurable of 450 clips) and 1.12 [0.26, 1.98] (CoTracker3), against 1.66 [0.60, 2.66] and 0.92 [0.11, 1.86] with seeds 0-1. Only 20% of Nano's B5 clips are measurable, so the CI stays wider than 1.4: Nano follows the scene's gravity, loosely.
+
 ## Replication on fresh scenes (2026-11-07, D12)
 
 kmain and kgrav drawn again with seed 7 (kmainf 100, kgravf 90; same families, ranges and counts). LTX-2B (seeds 0-1) and Cosmos-2B (seed 0) generated B1 and B5 on them (jobs `freshKof10`, RunPod, all 10 verified), then `freshprobe` (CPU pod) ran the same probes and the nested-CV gap on the CoTracker3 readout (`results/c3_{model}f_v2_nested.csv`, `results/p6_{model}f_*`). Original = the same analysis on kmain / kgrav (`results/c3_{model}_v2_nested.csv`).
