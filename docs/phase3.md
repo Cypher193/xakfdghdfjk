@@ -423,6 +423,22 @@ With all three 2B seeds the numbers barely move (hspeed -0.198 [-0.261, -0.140],
 
 **H6 fails, and on speed it fails the other way: scale halves the speed gap.** 14B knows speed about as well as 2B (0.74 vs 0.78) but shows it much better (0.53 vs 0.41). On gravity, scale changes neither knowing nor showing; 33 measurable scenes leave the CI too wide to call it equivalent. Restitution is close to equivalent, but neither model's restitution probe beats the input-latent baseline, so that gap is a rendering failure, not hidden knowledge.
 
+## H3 tested in full: probe gamma per block (2026-11-08)
+
+H3 (proposal v5): output gamma < 0.5, while probe gamma reaches 0.7 in the middle third of blocks and drops by >= 0.2 by the last block. Until now only V-JEPA had per-layer probe gamma. Job `gammaprobe` (vast, RTX 3060, about $0.05, verified) ran `python -m pilot.analysis gamma` on every generator's B5 activations: ridge probes trained across the three gravity values, out-of-fold by scene, gamma of predicted against true g at every block (object tokens, denoising step 0 shown; steps 1-2 agree within 0.05). No tracker is involved, so measurability does not limit it. Output gamma: SAM2 / CoTracker3 on all B5 clips (`pilot.analysis gates`, and the 14B and Nano fits of 2026-11-07/08).
+
+| Model | Output gamma | Probe gamma: first block, mid-third peak (block), last block [95% CI] | Drop | H3 |
+|---|---|---|---|---|
+| LTX-2B (28 blocks, 720 clips) | 0.15 [-0.12, 0.40] | 0.29, **0.92** (10), 0.65 [0.57, 0.72] | **+0.28** | **PASS** (all three parts) |
+| Cosmos-2B (28, 702) | 0.92 [0.50, 1.29] | 0.39, 0.98 (14), 0.92 [0.87, 0.97] | +0.06 | FAIL: output follows gravity, no late drop |
+| Cosmos-14B (36, 180) | 0.73 [0.34, 1.13] / 0.54 [0.18, 0.89] | 0.19, 0.95 (23), 0.91 [0.85, 0.96] | +0.05 | FAIL: no late drop |
+| Cosmos 3 Nano (36, 450) | 1.37 [0.69, 2.09] / 1.12 [0.26, 1.98] | 0.69, 0.96 (15), 0.82 [0.76, 0.87] | +0.14 (step 2: +0.18) | FAIL: output follows gravity; drop short of 0.2 |
+| VACE-1.3B (30, 90) | 0.78-0.96 | 0.01, 0.27 (10), 0.04 [0.02, 0.06] | +0.23 | FAIL: gravity never encoded (peak 0.27) |
+| V-JEPA 2 ViT-L (24 layers) | no pixels | 0.08, 0.77 (13), 0.61 [0.56, 0.66] | +0.16 | probe part FAIL (drop < 0.2) |
+| V-JEPA 2 ViT-g (40 layers) | no pixels | 0.00, 0.66 (25), 0.81 [0.74, 0.88] | -0.15 | probe part FAIL (rises) |
+
+**H3 holds for LTX, the one generator whose video ignores the input gravity.** LTX encodes the input gravity almost perfectly in its middle blocks (gamma 0.92 at block 10), loses about a third of it by the last block (0.65), and its video keeps almost none (0.15): the gravity it knows is overridden late, and further after the last block. Cosmos-2B, Cosmos-14B and Nano keep gravity through their last block (0.82-0.92) and their videos follow it, so there is no prior to override; Nano fades the most of the three (0.14-0.18), short of 0.2. VACE never encodes the scene's gravity in its object tokens (VACE's gravity probe did not beat the input latents either). Correction: V-JEPA ViT-L's drop is 0.16 over the proposal's middle third (the earlier "0.18" measured from its overall peak at layer 18).
+
 ## 14B C2-turn and C2-g, Nano gamma (2026-11-07, D11)
 
 All shards verified on HF by 21:34 UTC (jobs `c3tKof8`, `c3gKof5`, `cosmos3_nanovKof5`; RunPod A40 / A6000).
