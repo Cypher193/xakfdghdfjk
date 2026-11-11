@@ -17,6 +17,26 @@ mkdir -p data/logs
 utc_in() { python -c "import datetime as d; print((d.datetime.now(d.timezone.utc) + d.timedelta(hours=$1)).strftime('%Y-%m-%dT%H:%MZ'))"; }
 # Crash guard: if this script or its children die without stopping the pod, push to HF and stop the pod
 setsid nohup python scripts/guard.py --tag "$S" --hard-at "$(utc_in "$BUDGET + 2")" > /workspace/guard.out 2>&1 < /dev/null &
+# GPU health check before any setup (policy 2026-11-11): a throttled, power-capped or slow host is abandoned at once
+if command -v nvidia-smi >/dev/null && [ "${SKIP_GPU_CHECK:-0}" != 1 ]; then
+  [[ $JOB == *14b* ]] && MIN_RAM=80 || MIN_RAM=0      # 14B with CPU offload keeps its weights in host RAM
+  if ! python scripts/gpu_check.py --tag "$S" --min-ram-gb "$MIN_RAM" > "data/logs/gpucheck$S.log" 2>&1; then
+    tail -1 "data/logs/gpucheck$S.log"
+    python -c "
+import os, sys; sys.path.insert(0, 'scripts')
+try:
+    from huggingface_hub import HfApi
+    for f in ('data/logs/gpucheck$S.json', 'data/logs/gpucheck$S.log'):
+        if os.path.exists(f):
+            HfApi().upload_file(path_or_fileobj=f, path_in_repo=f, repo_type='dataset',
+                                repo_id=os.environ.get('HF_DATA_REPO', 'CypherNotHere/cvpr-vail-pilot'),
+                                commit_message='gpu check failed: host abandoned')
+except Exception as e:
+    print('gpu check log not pushed:', type(e).__name__)
+import finalize; finalize.stop_pod(verified=True)"
+    exit 4
+  fi
+fi
 bash scripts/setup_runpod.sh > "data/logs/setup$S.log" 2>&1 || { echo "setup failed"; exit 1; }
 STOP=$(utc_in "$BUDGET + 0.25")      # backstop only: run_pilot already skips steps that do not fit the budget
 HARD=$(utc_in "$BUDGET + 1.0")

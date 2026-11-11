@@ -570,13 +570,17 @@ RC_PODS = {"rcltx": ("ltx2b", [("kmain", None), ("kgrav", None)], True, 25),
            "rccos2of2": ("cosmos2b", [("kmain", "2/2"), ("kgrav", "2/2")], False, 95),
            "rcvace": ("vace13", [("kmain", None)], False, 115),
            "rcnano": ("cosmos3_nano", [("kmain", None), ("kgrav", None)], False, 75)}
+# Cosmos-14B fixed-box re-capture (plan docs/redteam/cos14b_plan.md): 4 shards; ~335 s/clip on an A40 is extrapolated
+# from Cosmos-2B (96 s) x 3.5 (14B/2B full-generation time on an A100); the smoke shard measures it first.
+RC_PODS |= {f"rccos14b{k}of4": ("cosmos14b", [("kmain", f"{k}/4"), ("kgrav", f"{k}/4")], False, 335) for k in (1, 2, 3, 4)}
+RC_PODS["rccos14bsmoke"] = ("cosmos14b", [("kmain", "1/100")], False, 335)   # one clip: time and VRAM
 RC_N = {"kmain": 100, "kgrav": 90}
 
 
 def _rc_jobs():
     jobs = {}
     for job, (m, parts, rand, per) in RC_PODS.items():
-        steps = [dict(name=f"rc:{m}{'_rand' * r}:{s}", kind="cmd", model=m, est_s=LOAD_S + RC_N[s] // (2 if sh else 1) * per,
+        steps = [dict(name=f"rc:{m}{'_rand' * r}:{s}", kind="cmd", model=m, est_s=LOAD_S + -(-RC_N[s] // int(sh.split("/")[1] if sh else 1)) * per,
                       cmd=[PY, "-m", "pilot.recapture", "gen", "--model", m, "--set", s]
                       + (["--shard", sh] if sh else []) + (["--random-init"] if r else []))
                  for s, sh, r in [(s, sh, False) for s, sh in parts] + ([("kmain", None, True)] if rand else [])]
@@ -589,8 +593,12 @@ def _rc_jobs():
            for m in rc_models for s, t in (("kmain", "hspeed"), ("kgrav", "g"))
            if not (s == "kgrav" and m in ("vace13", "ltx2b_rand"))] \
         + [cmd("rcsummary", ["-m", "pilot.recapture", "summary"], 60)]
+    # 14B: its own family of two tests (pre-registered), so the 8-test Holm family above is unchanged
+    jobs["rcprobe14b"] = [cmd(f"rccheck:cosmos14b:{s}", ["-m", "pilot.recapture", "check", "--model", "cosmos14b", "--set", s], 600)
+                          for s in ("kmain", "kgrav")]         + [cmd(f"rcprobe:cosmos14b:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", s,
+                                               "--target", t], 3600) for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcsummary14b", ["-m", "pilot.recapture", "summary", "--family", "cosmos14b"], 60)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rtfix"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rtfix"] = []
     return jobs
 
 

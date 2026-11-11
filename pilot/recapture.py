@@ -28,6 +28,7 @@ import yaml
 
 SETS = {"kmain": "b1", "kmainf": "b1f", "kgrav": "b5"}   # scene set -> experiment (scene list, caption key)
 SIZE_EXP = {"kmain": "b1", "kmainf": "b1", "kgrav": "b5"}   # fix box sizes always come from the original set
+SEPARATE_FAMILIES = ("cosmos14b",)   # added after the 8-test family ran (2026-11-11): own Holm family, pre-registered
 FRACTION = [0.25]
 PCTL = 90                                        # fix box size: this percentile of the union-box size per family
 
@@ -292,11 +293,12 @@ def check_cmd(a):
 def summary_cmd(a):
     import pandas as pd
     df = pd.concat([pd.read_csv(f) for f in sorted(Path("results").glob("rc_*_*_*.csv")) if "summary" not in f.name])
+    df = df[df.model == a.family] if a.family else df[~df.model.isin(SEPARATE_FAMILIES)]
     prim = df[df.readout == "acts_fix_pf"].copy().sort_values("p")
     m = len(prim)
     prim["p_holm"] = [min(1.0, max(p * (m - i) for i, p in enumerate(prim.p.iloc[: j + 1]))) for j in range(m)]
     prim["pass"] = (prim.margin >= 0.05) & (prim.lo > 0) & (prim.p_holm < 0.05)
-    prim.to_csv("results/rc_summary.csv", index=False)
+    prim.to_csv(f"results/rc_summary{'_' + a.family if a.family else ''}.csv", index=False)
     print(prim[["model", "set", "target", "sym_mra", "vs", "margin", "lo", "hi", "p_holm", "pass"]].to_string(index=False))
 
 
@@ -310,6 +312,7 @@ def main():
     ap.add_argument("--limit", type=int)
     ap.add_argument("--random-init", action="store_true")
     ap.add_argument("--min-ident", type=float, default=0.95)
+    ap.add_argument("--family", help="summary: Holm over this model's tests only (models in SEPARATE_FAMILIES)")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
     dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd)[a.cmd](a)
