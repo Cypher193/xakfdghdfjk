@@ -599,8 +599,10 @@ def _rc_jobs():
                                                "--target", t], 3600) for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcsummary14b", ["-m", "pilot.recapture", "summary", "--family", "cosmos14b"], 60)]
     jobs["rcinshow"] = [cmd("rcinshow", ["-m", "pilot.recapture", "inshow"], 1800)]
     jobs["rtknowscale"] = [cmd("rtknowscale", ["-m", "pilot.redteam_fixes", "knowscale"], 600)]
+    # host benchmark only: 120 s sustained bf16 matmul with power and clock sampling (the pre-setup check runs 30 s)
+    jobs["gpubench"] = [cmd("gpubench", ["scripts/gpu_check.py", "--tag", "_ltx_gpubench_long", "--seconds", "120"], 300)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["rtfix"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
     return jobs
 
 
