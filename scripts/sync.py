@@ -156,6 +156,18 @@ elif os.environ.get("LTX_JOB"):
         from run_pilot import VJEPA_MODELS
         PATTERNS = ["data/scenes/**"] + [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]             + [f"data/renders/{s}/*.mp4" for s in ("kvelv", "kturnl", "kcontl")] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
         PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]] + [f"results/p6_{m}*" for m in VJEPA_MODELS]
+    if j in ("rcltx", "rcvace", "rcnano") or j.startswith("rccos"):   # red-team re-capture: inputs in, rc acts out
+        PATTERNS = [f"data/scenes/{s}/**" for s in ("kmain", "kgrav")] + \
+            [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")] + mine + [f"{r}/**" for r in LTX_RUNS[j]]
+        PUSH_PATTERNS = mine + [f"{r}/**" for r in LTX_RUNS[j]]
+    if j == "rcprobe":                    # rc acts + the original seed-0 acts (reproduction check) in; rc results out
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/**"] + mine + \
+            [f"runs/{e}/{m}/*_s0/{f}" for e in ("b1", "b5") for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano")
+             for f in ("acts.npz", "meta.json")]
+        PUSH_PATTERNS = mine + ["results/rc_*"]
+    if j == "rtfix":                      # CSV results + scene specs in (no acts, no videos); rt tables out
+        PATTERNS = ["data/scenes/**", "results/c3_*_v2_nested_clips.csv", "results/c2_*", "results/c2g_*"] + mine
+        PUSH_PATTERNS = mine + ["results/rt_*"]
 PUSH_PATTERNS = globals().get("PUSH_PATTERNS", PATTERNS)       # what push uploads and finalize verifies
 
 

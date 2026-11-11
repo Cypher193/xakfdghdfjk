@@ -563,8 +563,40 @@ WRAPUP_EXPS = ["b1", "b2nl", "b2num", "b3", "bl3", "bl3nl", "b5", "bratio2", "st
 C2_JOBS["wrapup"] = [cmd("wrapup", ["-m", "pilot.wrapup"], 1800)] +     [cmd(f"gates:{m}{':v2' * v2}", ["-m", "pilot.analysis", "gates", "--no-fetch", "--model", m] + ["--v2"] * v2, 600)
      for m in STATS_MODELS for v2 in (True, False)]
 LTX_RUNS["wrapup"] = []
+# Red-team fix (2026-11-11, user approved; scratchpad fix_plan.md v2): re-capture at 25% of denoising with
+# trajectory-free pools (pilot.recapture), seed 0, acts_only. Pods: (model, [(set, shard)], random-init too, s/clip).
+RC_PODS = {"rcltx": ("ltx2b", [("kmain", None), ("kgrav", None)], True, 25),
+           "rccos1of2": ("cosmos2b", [("kmain", "1/2"), ("kgrav", "1/2")], False, 95),
+           "rccos2of2": ("cosmos2b", [("kmain", "2/2"), ("kgrav", "2/2")], False, 95),
+           "rcvace": ("vace13", [("kmain", None)], False, 115),
+           "rcnano": ("cosmos3_nano", [("kmain", None), ("kgrav", None)], False, 75)}
+RC_N = {"kmain": 100, "kgrav": 90}
+
+
+def _rc_jobs():
+    jobs = {}
+    for job, (m, parts, rand, per) in RC_PODS.items():
+        steps = [dict(name=f"rc:{m}{'_rand' * r}:{s}", kind="cmd", model=m, est_s=LOAD_S + RC_N[s] // (2 if sh else 1) * per,
+                      cmd=[PY, "-m", "pilot.recapture", "gen", "--model", m, "--set", s]
+                      + (["--shard", sh] if sh else []) + (["--random-init"] if r else []))
+                 for s, sh, r in [(s, sh, False) for s, sh in parts] + ([("kmain", None, True)] if rand else [])]
+        jobs[job] = steps
+        LTX_RUNS[job] = [f"runs/rc/{m}"] + ([f"runs/rc/{m}_rand"] if rand else [])
+    rc_models = ["ltx2b", "ltx2b_rand", "cosmos2b", "vace13", "cosmos3_nano"]
+    jobs["rcprobe"] = [cmd(f"rccheck:{m}:{s}", ["-m", "pilot.recapture", "check", "--model", m, "--set", s], 300)
+                       for m in rc_models if not m.endswith("_rand") for s in ("kmain", "kgrav") if m != "vace13" or s == "kmain"] \
+        + [cmd(f"rcprobe:{m}:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", m, "--set", s, "--target", t], 1800)
+           for m in rc_models for s, t in (("kmain", "hspeed"), ("kgrav", "g"))
+           if not (s == "kgrav" and m in ("vace13", "ltx2b_rand"))] \
+        + [cmd("rcsummary", ["-m", "pilot.recapture", "summary"], 60)]
+    jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rtfix"] = []
+    return jobs
+
+
+RC_JOBS = _rc_jobs()
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
-    | {"stats2v2": STATS2V2} | C2_JOBS
+    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

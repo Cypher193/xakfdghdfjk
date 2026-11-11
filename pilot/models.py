@@ -32,8 +32,11 @@ class StopDenoise(Exception):
 class Capture:
     """Forward hooks that pool block outputs at selected denoising steps."""
 
-    def __init__(self, cfg, n_steps, fractions, token_grid, obj_mask, stop_early=False):
+    def __init__(self, cfg, n_steps, fractions, token_grid, obj_mask, stop_early=False, masks=None):
+        """masks: extra {pool name: bool (F, H, W)}; a name ending in "_pf" is pooled per latent frame (frames with
+        any masked token, in order) and stored flattened, (n_frames * D,), instead of over all masked tokens."""
         self.cfg, self.grid, self.obj = cfg, token_grid, obj_mask            # obj_mask: bool (F, H, W) tokens
+        self.masks = {k: v for k, v in (masks or {}).items() if v is not None and v.any()}
         self.steps = sorted({int(round(f * (n_steps - 1))) for f in fractions})
         self.step, self.seen, self.acts, self.handles = 0, set(), {}, []
         self.final_latent = None
@@ -65,6 +68,14 @@ class Capture:
             if self.obj is not None and h.shape[0] == n_grid and self.obj.any():
                 m = torch.from_numpy(self.obj.reshape(-1)).to(h.device)
                 pooled["obj"] = h[m].mean(0)
+            if h.shape[0] == n_grid:
+                for name, mask in self.masks.items():
+                    if name.endswith("_pf"):
+                        hf = h.reshape(*self.grid, -1)
+                        pooled[name] = torch.cat([hf[f][torch.from_numpy(mask[f]).to(h.device)].mean(0)
+                                                  for f in range(mask.shape[0]) if mask[f].any()])
+                    else:
+                        pooled[name] = h[torch.from_numpy(mask.reshape(-1)).to(h.device)].mean(0)
             self.acts[key] = {k: v.cpu().numpy().astype(np.float16) for k, v in pooled.items()}
         return fn
 
@@ -81,7 +92,7 @@ class Capture:
         out = {}
         for group in self.cfg["blocks"]:
             idx = sorted({k[1] for k in self.acts if k[0] == group})
-            for pool in ("obj", "all"):
+            for pool in ("obj", "all", *self.masks):
                 if all(pool in self.acts.get((group, i, s), {}) for i in idx for s in self.steps) and idx:
                     out[f"{group}/{pool}"] = np.stack([np.stack([self.acts[(group, i, s)][pool] for s in self.steps])
                                                        for i in idx])
@@ -236,6 +247,32 @@ class Generator:
             out["obj"] = sub.mean((1, 2, 3)).cpu().numpy()
         return out
 
+    @torch.no_grad()
+    def vae_pooled(self, frames, pools):
+        """VAE latent of the input frames, pooled for baselines. pools: {name: (mask, mode)} with mask a bool
+        (F, h, w) over the latent grid and mode "mean" (over all masked cells), "pf" (mean per latent frame,
+        concatenated) or "flat" (every masked cell's channels, flattened; the mask must hold the same number of
+        cells for every clip)."""
+        c = self.cfg
+        x = self.pipe.video_processor.preprocess_video(_pil(frames, c["width"], c["height"]), c["height"], c["width"])
+        vae = self.pipe.vae
+        home = next(vae.parameters()).device
+        vae.to(self.device)
+        lat = vae.encode(x.to(self.device, self.dtype)).latent_dist.mean[0].float()   # (C, F, h, w)
+        vae.to(home)
+        out = {}
+        for name, (mask, mode) in pools.items():
+            assert mask.shape == tuple(lat.shape[1:]), f"vae pool {name}: mask {mask.shape} != latent {tuple(lat.shape[1:])}"
+            m = torch.from_numpy(mask).to(lat.device)
+            if mode == "mean":
+                out[name] = lat[:, m].mean(1)
+            elif mode == "pf":
+                out[name] = torch.cat([lat[:, f][:, m[f]].mean(1) for f in range(m.shape[0]) if m[f].any()])
+            else:
+                out[name] = lat[:, m].reshape(-1)
+            out[name] = out[name].cpu().numpy().astype(np.float16)
+        return out
+
     def _call(self, frames, prompt, gen, cb):
         c = self.cfg
         common = dict(prompt=prompt, height=c["height"], width=c["width"], num_frames=c["num_frames"],
@@ -247,13 +284,15 @@ class Generator:
     def blocks(self, group=None):
         return getattr(self.pipe.transformer, group or self.cfg["blocks"][0])
 
-    def generate(self, cond_frames, prompt, seed, obj_box=None, in_wh=(854, 480), capture=True, hooks=(), acts_only=False):
+    def generate(self, cond_frames, prompt, seed, obj_box=None, in_wh=(854, 480), capture=True, hooks=(), acts_only=False,
+                 masks=None, vae_pools=None):
         """hooks: extra (module, forward_hook) pairs active during this call only (used for steering).
-        acts_only: stop denoising after the last captured step, no decode -> dict(acts, meta=dict(wall_s))."""
+        acts_only: stop denoising after the last captured step, no decode -> dict(acts, meta=dict(wall_s)), plus
+        vae when vae_pools is given. masks: extra token pools (see Capture); vae_pools: see vae_pooled."""
         c = self.cfg
         grid = token_grid(c)
         cap = Capture(c, c["steps"], self.run_cfg["capture_fractions"], grid,
-                      object_token_mask(c, grid, obj_box, in_wh), stop_early=acts_only)
+                      object_token_mask(c, grid, obj_box, in_wh), stop_early=acts_only, masks=masks)
         cap.handles += [m.register_forward_hook(fn) for m, fn in hooks]   # first: capture then sees steered output
         if capture or acts_only:
             cap.attach(self.pipe.transformer)
@@ -262,7 +301,10 @@ class Generator:
         try:
             video = np.asarray(self._call(list(cond_frames), prompt, gen, cap.callback))
         except StopDenoise:
-            return dict(acts=cap.arrays(), meta=dict(wall_s=round(time.time() - t0, 1)))
+            res = dict(acts=cap.arrays(), meta=dict(wall_s=round(time.time() - t0, 1)))
+            if vae_pools:
+                res["vae"] = self.vae_pooled(cond_frames, vae_pools)
+            return res
         finally:
             cap.detach()
         wall = time.time() - t0
