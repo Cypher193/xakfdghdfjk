@@ -5,7 +5,8 @@
 Checks, each against the card's own limits:
 - sustained bf16 matmul throughput (8192^2, about 30 s) >= MIN_FRAC of the card's dense bf16 spec
 - power limit not lowered by the host: enforced limit >= 0.9 x default limit
-- under load: mean SM clock >= 0.75 x max SM clock, and mean power draw >= 0.6 x enforced power limit
+- under load: mean power draw >= 0.6 x enforced power limit, and mean SM clock >= 0.75 x max SM clock unless
+  the card is at its power limit (>= 0.9 x), where low clocks are normal
 - no hardware or thermal slowdown reported during the load
 - host RAM >= --min-ram-gb (CPU offload of a 14B model keeps the weights in host RAM)
 Writes data/logs/gpucheck{tag}.json, which the pod's normal sync pushes to HF.
@@ -96,8 +97,12 @@ def check(seconds, min_ram_gb):
         fails.append(f"bf16 {tflops:.0f} TFLOPS < {MIN_FRAC} x spec {spec}")
     if idle["power.limit"] < 0.9 * idle["power.default_limit"]:
         fails.append(f"power limit {idle['power.limit']} W lowered from {idle['power.default_limit']} W")
-    if r["sm_clock_load"] < 0.75 * idle["clocks.max.sm"]:
-        fails.append(f"SM clock {r['sm_clock_load']} MHz under load < 0.75 x max {idle['clocks.max.sm']}")
+    # a card held at its power limit runs well below its boost clock under matmul load (L40S: 1239 of 2520 MHz at
+    # 350 of 350 W, 2026-11-11), so a low clock counts only when the card is not drawing its power limit
+    power_bound = r["power_draw_load"] >= 0.9 * idle["power.limit"]
+    if r["sm_clock_load"] < 0.75 * idle["clocks.max.sm"] and not power_bound:
+        fails.append(f"SM clock {r['sm_clock_load']} MHz under load < 0.75 x max {idle['clocks.max.sm']}, "
+                     f"while drawing only {r['power_draw_load']} of {idle['power.limit']} W")
     if r["power_draw_load"] < 0.6 * idle["power.limit"]:
         fails.append(f"power draw {r['power_draw_load']} W under load < 0.6 x limit {idle['power.limit']}")
     if flags:

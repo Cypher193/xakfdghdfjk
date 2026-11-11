@@ -24,7 +24,8 @@ healthy = run(110)
 assert healthy["ok"], healthy["fails"]
 assert not run(40)["ok"], "slow matmul must fail"
 assert not run(110, power_limit=200)["ok"], "host-lowered power limit must fail"
-assert not run(110, clock=900)["ok"], "low SM clock under load must fail"
+assert not run(110, clock=900, draw=200)["ok"], "low SM clock while under the power limit must fail"
+assert run(110, clock=900, draw=295)["ok"], "low SM clock at the power limit is normal power capping"
 assert not run(110, draw=120)["ok"], "low power draw under load must fail"
 assert not run(110, slowdown="Active")["ok"], "thermal or hardware slowdown must fail"
 assert not run(110, ram=64e9, min_ram=80)["ok"], "too little host RAM must fail"
