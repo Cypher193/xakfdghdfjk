@@ -168,6 +168,11 @@ elif os.environ.get("LTX_JOB"):
     if j == "rcprobe14b":
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos14b/**"] + mine +             [f"runs/{e}/cosmos14b/*_s0/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json")]
         PUSH_PATTERNS = mine + ["results/rc_cosmos14b_*", "results/rc_check_cosmos14b_*", "results/rc_summary_cosmos14b.csv"]
+    if j == "rcinshow":                   # rc acts (VAE pools) + the tracker clip tables in; one table out
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + \
+            [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano") for f in ("acts.npz", "meta.json")] + \
+            [f"results/c3_{m}_v2_nested_clips.csv" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano")]
+        PUSH_PATTERNS = mine + ["results/rc_inshow.csv"]
     if j == "rtfix":                      # CSV results + scene specs in (no acts, no videos); rt tables out
         PATTERNS = ["data/scenes/**", "results/c3_*_v2_nested_clips.csv", "results/c2_*", "results/c2g_*"] + mine
         PUSH_PATTERNS = mine + ["results/rt_*"]

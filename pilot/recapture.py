@@ -179,6 +179,25 @@ def flat_pred(X, y, groups, folds):
     return pred
 
 
+def vae_pred(Z, rows, pool, y, groups, folds):
+    """Out-of-fold ridge prediction from one VAE pool. fix_flat has one length per family (the fix box has one size per
+    family), so it is fitted per family, with the same outer folds restricted to that family."""
+    X = [z[f"vae/{pool}"].astype(np.float32) for z in Z]
+    if len({x.shape for x in X}) == 1:
+        return flat_pred(np.stack(X), y, groups, folds)
+    fam = np.array([family(r[2]) for r in rows])
+    pred = np.empty_like(y)
+    for f in np.unique(fam):
+        i = np.flatnonzero(fam == f)
+        for tr, te in folds:
+            tr, te = np.intersect1d(tr, i), np.intersect1d(te, i)
+            if len(te):
+                k = np.r_[tr, te]
+                pred[te] = flat_pred(np.stack([X[j] for j in k]), y[k], groups[k],
+                                     [(np.arange(len(tr)), len(tr) + np.arange(len(te)))])[len(tr):]
+    return pred
+
+
 def boot_ci(d, groups, n=10000, seed=0):
     ug = np.unique(groups)
     per = np.array([d[groups == g].mean() for g in ug])
@@ -208,21 +227,7 @@ def probe_cmd(a):
         preds[f"acts_{pool}"], picks = nested(Xb, y, groups, folds)
         info[f"acts_{pool}"] = "blocks " + ",".join(map(str, picks))
     for pool in ("fix_pf", "fix_flat", "fix", "f0", "obj"):
-        X = [z[f"vae/{pool}"].astype(np.float32) for z in Z]
-        if len({x.shape for x in X}) == 1:
-            preds[f"vae_{pool}"] = flat_pred(np.stack(X), y, groups, folds)
-            continue
-        # fix_flat: the fix box has one size per family, so the flattened cells differ in length; fit per family
-        fam = np.array([family(r[2]) for r in rows])
-        preds[f"vae_{pool}"] = np.empty_like(y)
-        for f in np.unique(fam):
-            i = np.flatnonzero(fam == f)
-            for tr, te in folds:
-                tr, te = np.intersect1d(tr, i), np.intersect1d(te, i)
-                if len(te):
-                    k = np.r_[tr, te]
-                    preds[f"vae_{pool}"][te] = flat_pred(np.stack([X[j] for j in k]), y[k], groups[k],
-                                                         [(np.arange(len(tr)), len(tr) + np.arange(len(te)))])[len(tr):]
+        preds[f"vae_{pool}"] = vae_pred(Z, rows, pool, y, groups, folds)
     # box-position baseline: the fix box has constant size per family, so all it carries is family + frame-0 centre
     from pilot.recapture import centre_and_union
     mcfg = yaml.safe_load(open(a.config))["models"][a.model.removesuffix("_rand")]
@@ -290,6 +295,46 @@ def check_cmd(a):
     raise SystemExit(0 if ok else 3)
 
 
+INSHOW = [("ltx2b", "kmain", "hspeed"), ("ltx2b", "kgrav", "g"), ("cosmos2b", "kmain", "hspeed"), ("cosmos2b", "kgrav", "g"),
+          ("vace13", "kmain", "hspeed"), ("cosmos3_nano", "kmain", "hspeed"), ("cosmos3_nano", "kgrav", "g")]
+
+
+def inshow_cmd(a):
+    """Input versus show on the same clips: does the video keep what the input frames already carry?
+    Input = out-of-fold VAE fix_flat prediction (the best input readout in rcprobe). Show = the tracker's seed-0
+    estimate (CoTracker3, results/c3_{model}_v2_nested_clips.csv), raw and calibrated (out-of-fold linear map of ln show
+    to ln y, scene-grouped, as in redteam_fixes.calib). Paired on measurable seed-0 clips, scene-bootstrap CI."""
+    import pandas as pd
+    from sklearn.model_selection import GroupKFold
+    from pilot import metrics
+    out = []
+    for model, sset, target in INSHOW:
+        rows = load(model, sset, target)
+        y = np.array([r[3] for r in rows])
+        groups = np.array([r[1]["scene"].split("_g")[0] for r in rows])
+        Z = [np.load(r[0]) for r in rows]
+        folds = list(GroupKFold(5).split(y, y, groups))
+        inp = metrics.sym_mra(vae_pred(Z, rows, "fix_flat", y, groups, folds), y)
+        c = pd.read_csv(f"results/c3_{model}_v2_nested_clips.csv")
+        c = c[(c.target == target) & (c.method == "nested")].set_index("dir")
+        show = np.array([c.show_pred.get(f"{r[1]['scene']}_s0", np.nan) for r in rows], float)
+        m = np.isfinite(show) & (show > 0)
+        ys, ls, g = y[m], np.log(show[m]), groups[m]
+        cal = np.empty_like(ls)
+        for tr, te in GroupKFold(5).split(ls, ys, g):
+            b, k = np.polyfit(ls[tr], np.log(ys[tr]), 1)
+            cal[te] = b * ls[te] + k
+        raw_mra, cal_mra = metrics.sym_mra(show[m], ys), metrics.sym_mra(np.exp(cal), ys)
+        d_raw, d_cal = boot_ci(inp[m] - raw_mra, g), boot_ci(inp[m] - cal_mra, g)
+        out.append(dict(model=model, set=sset, target=target, clips=len(y), measurable=int(m.sum()),
+                        input_all=float(inp.mean()), input_meas=float(inp[m].mean()), show=float(raw_mra.mean()),
+                        show_cal=float(cal_mra.mean()), input_minus_show=d_raw[0], lo=d_raw[1], hi=d_raw[2], p=d_raw[3],
+                        input_minus_show_cal=d_cal[0], lo_cal=d_cal[1], hi_cal=d_cal[2], p_cal=d_cal[3]))
+        print(out[-1], flush=True)
+    Path("results").mkdir(exist_ok=True)
+    pd.DataFrame(out).to_csv("results/rc_inshow.csv", index=False)
+
+
 def summary_cmd(a):
     import pandas as pd
     df = pd.concat([pd.read_csv(f) for f in sorted(Path("results").glob("rc_*_*_*.csv")) if "summary" not in f.name])
@@ -304,7 +349,7 @@ def summary_cmd(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary"])
+    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary", "inshow"])
     ap.add_argument("--model")
     ap.add_argument("--set", default="kmain", help="gen: one of %s; probe: sets joined by +, e.g. kmain+kmainf" % list(SETS))
     ap.add_argument("--target", default="hspeed")
@@ -315,7 +360,7 @@ def main():
     ap.add_argument("--family", help="summary: Holm over this model's tests only (models in SEPARATE_FAMILIES)")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
-    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd)[a.cmd](a)
+    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd, inshow=inshow_cmd)[a.cmd](a)
 
 
 if __name__ == "__main__":

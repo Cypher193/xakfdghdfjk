@@ -192,6 +192,10 @@ def worker_label(a, k):
 
 
 def worker_offers(a):
+    if a.cpu:                                        # CPU-only host (probes): no GPU, no direct port needed
+        q = (f"rentable=true num_gpus=0 cpu_cores_effective>={a.cpu} cpu_ram>={a.ram} disk_space>={a.disk} "
+             f"reliability>0.98 inet_down>=200 inet_down_cost<=0.005 " + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))
+        return [o for o in vast("search", "offers", q, "-o", "dph_total") or [] if o["machine_id"] not in BAD_MACHINES]
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
          f"inet_down_cost<=0.005 "        # $/GB: phase 2 paid $3.5 in download fees at up to $0.03/GB
@@ -239,7 +243,7 @@ def worker(a):
     offers = worker_offers(a)
     print(f"{len(offers)} distinct machines match; top:")
     for o in offers[:max(5, a.n)]:
-        print(f"offer {o['id']}  m{o['machine_id']}  {o['gpu_name']}  ${o['dph_total']:.3f}/h  {o.get('geolocation')}  "
+        print(f"offer {o['id']}  m{o['machine_id']}  {o.get('gpu_name') or 'CPU'}  ${o['dph_total']:.3f}/h  {o.get('geolocation')}  "
               f"{o['inet_down']:.0f} Mb/s down  {o['disk_space']:.0f} GB disk  rel {o.get('reliability2', 0):.3f}")
     if len(offers) < a.n:
         print(f"WARNING: only {len(offers)} distinct machines for n={a.n}")
@@ -375,6 +379,7 @@ def main():
     w.add_argument("--n", type=int, default=1)
     offer_args(w, 120)
     w.add_argument("--budget-h", type=float, default=6)
+    w.add_argument("--cpu", type=int, help="CPU-only host with at least this many effective cores (ignores --gpu/--vram)")
     w.add_argument("--monitor-url")
     w.add_argument("--dry-run", action="store_true")
     w.set_defaults(f=worker)

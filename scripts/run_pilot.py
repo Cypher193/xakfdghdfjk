@@ -597,8 +597,9 @@ def _rc_jobs():
     jobs["rcprobe14b"] = [cmd(f"rccheck:cosmos14b:{s}", ["-m", "pilot.recapture", "check", "--model", "cosmos14b", "--set", s], 600)
                           for s in ("kmain", "kgrav")]         + [cmd(f"rcprobe:cosmos14b:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", s,
                                                "--target", t], 3600) for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcsummary14b", ["-m", "pilot.recapture", "summary", "--family", "cosmos14b"], 60)]
+    jobs["rcinshow"] = [cmd("rcinshow", ["-m", "pilot.recapture", "inshow"], 1800)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rtfix"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rtfix"] = []
     return jobs
 
 
