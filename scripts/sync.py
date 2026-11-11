@@ -173,6 +173,9 @@ elif os.environ.get("LTX_JOB"):
             [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano") for f in ("acts.npz", "meta.json")] + \
             [f"results/c3_{m}_v2_nested_clips.csv" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano")]
         PUSH_PATTERNS = mine + ["results/rc_inshow.csv"]
+    if j == "rtknowscale":                # the two Cosmos clip tables in, one table out
+        PATTERNS = ["data/scenes/**", "results/c3_cosmos2b_v2_nested_clips.csv", "results/c3_cosmos14b_v2_nested_clips.csv"] + mine
+        PUSH_PATTERNS = mine + ["results/rt_knowscale.csv"]
     if j == "rtfix":                      # CSV results + scene specs in (no acts, no videos); rt tables out
         PATTERNS = ["data/scenes/**", "results/c3_*_v2_nested_clips.csv", "results/c2_*", "results/c2g_*"] + mine
         PUSH_PATTERNS = mine + ["results/rt_*"]

@@ -5,6 +5,7 @@
   calib   calibrated and seed-aggregated show, strict gap, know on all clips, measurable shares (X5, X6, E3)
   bias    signed median ln(estimate / truth) of show and know (X3)
   lik     k* bootstrap CI, share at the grid edge, preference by family and in-frame only (X4, X14)
+  knowscale  equivalence of know at 2B and 14B (Cosmos-Predict2.5): per-scene know(14B) - know(2B), seeds 0-1
 """
 import argparse
 import json
@@ -183,9 +184,37 @@ def lik(a):
     pd.DataFrame(rows).to_csv(OUT / "rt_lik.csv", index=False)
 
 
+# ------------------------------------------------------------------------------------------ knowscale
+
+EQ_MARGIN = 0.05   # the H6 equivalence margin (sym MRA), fixed before the 14B runs
+
+
+def knowscale(a):
+    """Does know change from Cosmos-2B to Cosmos-14B? Paired on clips both models have (same scene and seed, seeds 0-1),
+    averaged per base scene (gravity triplets are one scene), scene bootstrap. Equivalent if the 95% CI lies inside
+    +-EQ_MARGIN. Know is the nested-CV probe on the original (union-box) pool; the fixed-box 14B probe is separate."""
+    rows = []
+    two, big = clips("cosmos2b"), clips("cosmos14b")
+    for t in sorted(set(two.target) & set(big.target)):
+        m = two[two.target == t].merge(big[big.target == t], on="dir", suffixes=("_2b", "_14b"))
+        m = m[m.dir.str.rsplit("_s", n=1).str[1].astype(int) <= 1]
+        m["base"] = m.scene_2b.str.split("_g").str[0]
+        both = m.show_pred_2b.notna() & (m.show_pred_2b > 0) & m.show_pred_14b.notna() & (m.show_pred_14b > 0)
+        for subset, x in (("all", m), ("measurable_both", m[both])):
+            if x.empty:
+                continue
+            per = x.groupby("base").apply(lambda f: (f.know_mra_14b - f.know_mra_2b).mean()).values
+            d, lo, hi = boot(per)
+            rows.append(dict(target=t, subset=subset, clips=len(x), scenes=len(per),
+                             know_2b=float(x.know_mra_2b.mean()), know_14b=float(x.know_mra_14b.mean()),
+                             diff=d, lo=lo, hi=hi, margin=EQ_MARGIN, equivalent=bool(lo > -EQ_MARGIN and hi < EQ_MARGIN)))
+            print(rows[-1], flush=True)
+    pd.DataFrame(rows).to_csv(OUT / "rt_knowscale.csv", index=False)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["geo", "calib", "bias", "lik", "all"])
+    ap.add_argument("cmd", choices=["geo", "calib", "bias", "lik", "knowscale", "all"])
     a = ap.parse_args()
     for c in (["bias", "calib", "lik", "geo"] if a.cmd == "all" else [a.cmd]):
         globals()[c](a)
