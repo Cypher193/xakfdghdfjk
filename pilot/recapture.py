@@ -207,8 +207,21 @@ def probe_cmd(a):
         preds[f"acts_{pool}"], picks = nested(Xb, y, groups, folds)
         info[f"acts_{pool}"] = "blocks " + ",".join(map(str, picks))
     for pool in ("fix_pf", "fix_flat", "fix", "f0", "obj"):
-        X = np.stack([z[f"vae/{pool}"].astype(np.float32) for z in Z])
-        preds[f"vae_{pool}"] = flat_pred(X, y, groups, folds)
+        X = [z[f"vae/{pool}"].astype(np.float32) for z in Z]
+        if len({x.shape for x in X}) == 1:
+            preds[f"vae_{pool}"] = flat_pred(np.stack(X), y, groups, folds)
+            continue
+        # fix_flat: the fix box has one size per family, so the flattened cells differ in length; fit per family
+        fam = np.array([family(r[2]) for r in rows])
+        preds[f"vae_{pool}"] = np.empty_like(y)
+        for f in np.unique(fam):
+            i = np.flatnonzero(fam == f)
+            for tr, te in folds:
+                tr, te = np.intersect1d(tr, i), np.intersect1d(te, i)
+                if len(te):
+                    k = np.r_[tr, te]
+                    preds[f"vae_{pool}"][te] = flat_pred(np.stack([X[j] for j in k]), y[k], groups[k],
+                                                         [(np.arange(len(tr)), len(tr) + np.arange(len(te)))])[len(tr):]
     # box-position baseline: the fix box has constant size per family, so all it carries is family + frame-0 centre
     from pilot.recapture import centre_and_union
     mcfg = yaml.safe_load(open(a.config))["models"][a.model.removesuffix("_rand")]
@@ -247,6 +260,9 @@ def check_cmd(a):
         if meta["set"] != a.set or not orig.exists():
             continue
         z, o = np.load(d), np.load(orig)
+        if not all(np.isfinite(o[k].astype(np.float32)).all() for k in o.files):  # dropped by probe.py too (fp16 overflow)
+            print("skip non-finite original", meta["scene"])
+            continue
         for k in (k for k in z.files if k.endswith("/obj") and not k.startswith("vae/")):
             N.setdefault(k, []).append(z[k][:, 0].astype(np.float32))
             O.setdefault(k, []).append(o[k][:, 0].astype(np.float32))
