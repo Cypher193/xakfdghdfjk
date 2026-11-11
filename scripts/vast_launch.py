@@ -193,8 +193,8 @@ def worker_label(a, k):
 
 def worker_offers(a):
     if a.cpu:                                        # CPU-only host (probes): no GPU, no direct port needed
-        q = (f"rentable=true num_gpus=0 cpu_cores_effective>={a.cpu} cpu_ram>={a.ram} disk_space>={a.disk} "
-             f"reliability>0.98 inet_down>=200 inet_down_cost<=0.005 " + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))
+        q = (f"rentable=true num_gpus=0 cpu_cores_effective>={a.cpu} disk_space>={a.disk} "   # CPU offers list cpu_ram 0
+             f"reliability>0.98 inet_down>=200 " + (f"geolocation={a.geo}" if a.geo else "geolocation!=CN"))
         return [o for o in vast("search", "offers", q, "-o", "dph_total") or [] if o["machine_id"] not in BAD_MACHINES]
     q = (f"rentable=true verified=true num_gpus=1 gpu_name={a.gpu.replace(' ', '_')} gpu_ram>={a.vram} cpu_ram>={a.ram} "
          f"disk_space>={a.disk} reliability>0.98 inet_down>=400 duration>1 cuda_vers>=12.8 direct_port_count>=1 "
