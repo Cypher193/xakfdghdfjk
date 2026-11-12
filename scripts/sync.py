@@ -168,6 +168,11 @@ elif os.environ.get("LTX_JOB"):
     if j == "rcprobe14b":
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos14b/**"] + mine +             [f"runs/{e}/cosmos14b/*_s0/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json")]
         PUSH_PATTERNS = mine + ["results/rc_cosmos14b_*", "results/rc_check_cosmos14b_*", "results/rc_summary_cosmos14b.csv"]
+    if j == "rc14bfinish":                # 14B gravity probe + pair (needs the 3 per-clip tables already on HF) + input vs show
+        M5 = ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos14b/**", "results/rcclips_cosmos*"] + mine +             [f"runs/rc/{m}/*_s0/{f}" for m in M5 for f in ("acts.npz", "meta.json")] +             [f"results/c3_{m}_v2_nested_clips.csv" for m in M5]
+        PUSH_PATTERNS = mine + ["results/rcclips_cosmos14b_kgrav_g.csv", "results/rc_cosmos14b_kgrav_g.csv",
+                                "results/rc_pair14b.csv", "results/rc_inshow.csv"]
     if j == "rcpair14b":                  # both Cosmos rc runs in; per-clip tables, re-run probes and the pair table out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos2b/**", "runs/rc/cosmos14b/**"] + mine
         PUSH_PATTERNS = mine + ["results/rcclips_cosmos*", "results/rc_pair14b.csv"]
