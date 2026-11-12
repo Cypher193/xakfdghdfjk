@@ -170,8 +170,8 @@ elif os.environ.get("LTX_JOB"):
         PUSH_PATTERNS = mine + ["results/rc_cosmos14b_*", "results/rc_check_cosmos14b_*", "results/rc_summary_cosmos14b.csv"]
     if j == "rcinshow":                   # rc acts (VAE pools) + the tracker clip tables in; one table out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + \
-            [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano") for f in ("acts.npz", "meta.json")] + \
-            [f"results/c3_{m}_v2_nested_clips.csv" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano")]
+            [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b") for f in ("acts.npz", "meta.json")] + \
+            [f"results/c3_{m}_v2_nested_clips.csv" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")]
         PUSH_PATTERNS = mine + ["results/rc_inshow.csv"]
     if j == "rtknowscale":                # the two Cosmos clip tables in, one table out
         PATTERNS = ["data/scenes/**", "results/c3_cosmos2b_v2_nested_clips.csv", "results/c3_cosmos14b_v2_nested_clips.csv"] + mine

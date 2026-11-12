@@ -296,7 +296,8 @@ def check_cmd(a):
 
 
 INSHOW = [("ltx2b", "kmain", "hspeed"), ("ltx2b", "kgrav", "g"), ("cosmos2b", "kmain", "hspeed"), ("cosmos2b", "kgrav", "g"),
-          ("vace13", "kmain", "hspeed"), ("cosmos3_nano", "kmain", "hspeed"), ("cosmos3_nano", "kgrav", "g")]
+          ("vace13", "kmain", "hspeed"), ("cosmos3_nano", "kmain", "hspeed"), ("cosmos3_nano", "kgrav", "g"),
+          ("cosmos14b", "kmain", "hspeed"), ("cosmos14b", "kgrav", "g")]
 
 
 def inshow_cmd(a):
