@@ -603,6 +603,15 @@ def _rc_jobs():
                          for m in ("cosmos2b", "cosmos14b") for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcpair14b", ["-m", "pilot.recapture", "pair"], 300)]
     # rcpair14b ran out of budget before the 14B gravity probe (est 1 h; measured 14B probe 0.33 h) and the rcinshow
     # rerun inherited the 2026-11-11 start file. One fresh job finishes both: the missing probe, the pair, input vs show.
+    # VACE gravity (user, 2026-11-13, option A): fixed-box re-capture on the 30 kgrav scenes VACE has (kgrav_00-09 sort
+    # first, so --limit 30), then its check, its probe (exploratory, outside both Holm families) and input vs show
+    jobs["rcvacegrav"] = [dict(name="rc:vace13:kgrav", kind="cmd", model="vace13", est_s=LOAD_S + 30 * 115,
+                               cmd=[PY, "-m", "pilot.recapture", "gen", "--model", "vace13", "--set", "kgrav", "--limit", "30"]),
+                          cmd("rccheck:vace13:kgrav", ["-m", "pilot.recapture", "check", "--model", "vace13", "--set", "kgrav"], 300),
+                          cmd("rcprobe:vace13:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "vace13", "--set", "kgrav",
+                                                         "--target", "g"], 900),
+                          cmd("rcinshow", ["-m", "pilot.recapture", "inshow"], 900)]
+    LTX_RUNS["rcvacegrav"] = ["runs/rc/vace13"]
     jobs["rc14bfinish"] = [cmd("rcprobe:cosmos14b:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", "kgrav",
                                                              "--target", "g"], 1500),
                            cmd("rcpair14b", ["-m", "pilot.recapture", "pair"], 120),

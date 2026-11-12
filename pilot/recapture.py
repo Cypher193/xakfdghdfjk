@@ -298,7 +298,8 @@ def check_cmd(a):
 
 INSHOW = [("ltx2b", "kmain", "hspeed"), ("ltx2b", "kgrav", "g"), ("cosmos2b", "kmain", "hspeed"), ("cosmos2b", "kgrav", "g"),
           ("vace13", "kmain", "hspeed"), ("cosmos3_nano", "kmain", "hspeed"), ("cosmos3_nano", "kgrav", "g"),
-          ("cosmos14b", "kmain", "hspeed"), ("cosmos14b", "kgrav", "g")]
+          ("cosmos14b", "kmain", "hspeed"), ("cosmos14b", "kgrav", "g"),
+          ("vace13", "kgrav", "g")]   # VACE: only the 30 original kgrav scenes (10 triplets), added 2026-11-13
 
 
 def inshow_cmd(a):

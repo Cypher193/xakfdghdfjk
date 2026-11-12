@@ -168,6 +168,11 @@ elif os.environ.get("LTX_JOB"):
     if j == "rcprobe14b":
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos14b/**"] + mine +             [f"runs/{e}/cosmos14b/*_s0/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json")]
         PUSH_PATTERNS = mine + ["results/rc_cosmos14b_*", "results/rc_check_cosmos14b_*", "results/rc_summary_cosmos14b.csv"]
+    if j == "rcvacegrav":                 # VACE model run (gen) + originals for the check + every model's rc acts for inshow
+        M5 = ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")
+        PATTERNS = PUSH_PATTERNS + ["data/scenes/kmain/**", "data/scenes/kgrav/**", "data/renders/kgrav/kgrav_0[0-9]_*/**"] +             [f"runs/b5/vace13/kgrav_0{k}_*_s0/{f}" for k in range(10) for f in ("acts.npz", "meta.json")] +             [f"runs/rc/{m}/*_s0/{f}" for m in M5 for f in ("acts.npz", "meta.json")] +             [f"results/c3_{m}_v2_nested_clips.csv" for m in M5]
+        PUSH_PATTERNS = PUSH_PATTERNS + ["results/rc_vace13_kgrav_g.csv", "results/rcclips_vace13_kgrav_g.csv",
+                                         "results/rc_check_vace13_kgrav.csv", "results/rc_inshow.csv"]
     if j == "rc14bfinish":                # 14B gravity probe + pair (needs the 3 per-clip tables already on HF) + input vs show
         M5 = ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos14b/**", "results/rcclips_cosmos*"] + mine +             [f"runs/rc/{m}/*_s0/{f}" for m in M5 for f in ("acts.npz", "meta.json")] +             [f"results/c3_{m}_v2_nested_clips.csv" for m in M5]
