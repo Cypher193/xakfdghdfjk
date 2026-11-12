@@ -250,6 +250,7 @@ def probe_cmd(a):
     df = pd.DataFrame(out)
     Path("results").mkdir(exist_ok=True)
     df.to_csv(f"results/rc_{a.model}_{a.set}_{a.target}.csv", index=False)
+    pd.DataFrame({"scene": [r[1]["scene"] for r in rows], **{k: mra[k] for k in ["acts_fix_pf", *base] if k in mra}})         .to_csv(f"results/rcclips_{a.model}_{a.set}_{a.target}.csv", index=False)
     print(df.to_string(index=False))
 
 
@@ -336,6 +337,30 @@ def inshow_cmd(a):
     pd.DataFrame(out).to_csv("results/rc_inshow.csv", index=False)
 
 
+PAIR = (("kmain", "hspeed"), ("kgrav", "g"))
+EQ_MARGIN = 0.05
+
+
+def pair_cmd(a):
+    """Cosmos-14B against Cosmos-2B on the same clips (they share one VAE, so the input baselines are the same):
+    paired difference of fixed-box know and of its margin over VAE fix_flat, scene-bootstrap CI, equivalence at +-0.05."""
+    import pandas as pd
+    out = []
+    for sset, target in PAIR:
+        c = [pd.read_csv(f"results/rcclips_{m}_{sset}_{target}.csv").set_index("scene") for m in ("cosmos2b", "cosmos14b")]
+        j = c[0].join(c[1], lsuffix="_2b", rsuffix="_14b", how="inner")
+        groups = np.array([s.split("_g")[0] for s in j.index])
+        for name, d in (("know", j.acts_fix_pf_14b - j.acts_fix_pf_2b),
+                        ("margin_vs_vae_flat", (j.acts_fix_pf_14b - j.vae_fix_flat_14b) - (j.acts_fix_pf_2b - j.vae_fix_flat_2b))):
+            m, lo, hi, p = boot_ci(d.to_numpy(), groups)
+            out.append(dict(set=sset, target=target, measure=name, clips=len(j), n_scenes=len(np.unique(groups)),
+                            know_2b=float(j.acts_fix_pf_2b.mean()), know_14b=float(j.acts_fix_pf_14b.mean()),
+                            diff_14b_minus_2b=m, lo=lo, hi=hi, p=p, equivalent=bool(lo > -EQ_MARGIN and hi < EQ_MARGIN)))
+            print(out[-1], flush=True)
+    Path("results").mkdir(exist_ok=True)
+    pd.DataFrame(out).to_csv("results/rc_pair14b.csv", index=False)
+
+
 def summary_cmd(a):
     import pandas as pd
     df = pd.concat([pd.read_csv(f) for f in sorted(Path("results").glob("rc_*_*_*.csv")) if "summary" not in f.name])
@@ -350,7 +375,7 @@ def summary_cmd(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary", "inshow"])
+    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary", "inshow", "pair"])
     ap.add_argument("--model")
     ap.add_argument("--set", default="kmain", help="gen: one of %s; probe: sets joined by +, e.g. kmain+kmainf" % list(SETS))
     ap.add_argument("--target", default="hspeed")
@@ -361,7 +386,7 @@ def main():
     ap.add_argument("--family", help="summary: Holm over this model's tests only (models in SEPARATE_FAMILIES)")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
-    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd, inshow=inshow_cmd)[a.cmd](a)
+    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd, inshow=inshow_cmd, pair=pair_cmd)[a.cmd](a)
 
 
 if __name__ == "__main__":
