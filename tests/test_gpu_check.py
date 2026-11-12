@@ -23,7 +23,9 @@ def run(tflops, power_limit=300, draw=290, clock=1700, slowdown="Not Active", ra
 healthy = run(110)
 assert healthy["ok"], healthy["fails"]
 assert not run(40)["ok"], "slow matmul must fail"
-assert not run(110, power_limit=200)["ok"], "host-lowered power limit must fail"
+assert run(110, power_limit=200, draw=195)["ok"], "a lowered power limit with full TFLOPS passes"
+assert "note" in run(110, power_limit=200, draw=195), "a lowered power limit is noted"
+assert not run(40, power_limit=200, draw=195)["ok"], "a lowered power limit with low TFLOPS fails"
 assert not run(110, clock=900, draw=200)["ok"], "low SM clock while under the power limit must fail"
 assert run(110, clock=900, draw=295)["ok"], "low SM clock at the power limit is normal power capping"
 assert not run(110, draw=120)["ok"], "low power draw under load must fail"

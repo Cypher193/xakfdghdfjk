@@ -4,7 +4,7 @@
 
 Checks, each against the card's own limits:
 - sustained bf16 matmul throughput (8192^2, about 30 s) >= MIN_FRAC of the card's dense bf16 spec
-- power limit not lowered by the host: enforced limit >= 0.9 x default limit
+- a host-lowered power limit is only noted; the TFLOPS bar decides whether the cap matters
 - under load: mean power draw >= 0.6 x enforced power limit, and mean SM clock >= 0.75 x max SM clock unless
   the card is at its power limit (>= 0.9 x), where low clocks are normal
 - no hardware or thermal slowdown reported during the load
@@ -95,8 +95,9 @@ def check(seconds, min_ram_gb):
         fails.append(f"no spec for {idle['name']}")
     elif tflops < MIN_FRAC * spec:
         fails.append(f"bf16 {tflops:.0f} TFLOPS < {MIN_FRAC} x spec {spec}")
+    # a lowered power limit alone is not a fail (user, 2026-11-12): the TFLOPS bar above already catches a cap that hurts
     if idle["power.limit"] < 0.9 * idle["power.default_limit"]:
-        fails.append(f"power limit {idle['power.limit']} W lowered from {idle['power.default_limit']} W")
+        r["note"] = f"power limit {idle['power.limit']} W lowered from {idle['power.default_limit']} W (ignored: TFLOPS decide)"
     # a card held at its power limit runs well below its boost clock under matmul load (L40S: 1239 of 2520 MHz at
     # 350 of 350 W, 2026-11-11), so a low clock counts only when the card is not drawing its power limit
     power_bound = r["power_draw_load"] >= 0.9 * idle["power.limit"]
