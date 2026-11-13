@@ -1,3 +1,4 @@
+import os
 """gpu_check verdicts on faked nvidia-smi readings and benchmark results (no GPU needed).
     python -m tests.test_gpu_check"""
 import sys
@@ -29,6 +30,11 @@ assert not run(40, power_limit=200, draw=195)["ok"], "a lowered power limit with
 assert not run(110, clock=900, draw=200)["ok"], "low SM clock while under the power limit must fail"
 assert run(110, clock=900, draw=295)["ok"], "low SM clock at the power limit is normal power capping"
 assert not run(110, draw=120)["ok"], "low power draw under load must fail"
+os.environ["GPU_CHECK_IGNORE_POWER"] = "1"
+r = run(110, clock=900, draw=120)
+assert r["ok"] and len(r["power_notes"]) == 2, "GPU_CHECK_IGNORE_POWER=1 notes low draw and clock instead of failing"
+assert not run(110, clock=900, draw=120, slowdown="Active")["ok"], "a slowdown still fails with power ignored"
+del os.environ["GPU_CHECK_IGNORE_POWER"]
 assert not run(110, slowdown="Active")["ok"], "thermal or hardware slowdown must fail"
 assert not run(110, ram=64e9, min_ram=80)["ok"], "too little host RAM must fail"
 assert gpu_check.spec_for("NVIDIA RTX A6000") == 154.8 and gpu_check.spec_for("NVIDIA A100 80GB PCIe") == 312.0

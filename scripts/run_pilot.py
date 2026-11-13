@@ -614,6 +614,11 @@ def _rc_jobs():
     LTX_RUNS["rcvacegrav"] = ["runs/rc/vace13"]
     # rcvacegrav generation took 2.05 h (est 1 h), so the budget skipped the rest; this finishes it without the model
     jobs["rcvacegravfin"] = jobs["rcvacegrav"][1:]
+    # V-JEPA on the fixed box + H3 per block on the fixed box (user, 2026-11-13): V-JEPA rc acts (both sizes, both sets),
+    # its reproduction check against the original union-box acts, its probes, then per-block gamma for every model
+    vj = [m for m in ("vjepa2l", "vjepa2g")]
+    jobs["rcvjepa"] = [cmd(f"rc:{m}:{s}", ["-m", "pilot.vjepa", "rc", "--model", m, "--set", s], 900) for m in vj for s in ("kmain", "kgrav")]         + [cmd(f"rccheck:{m}:{s}", ["-m", "pilot.recapture", "check", "--model", m, "--set", s], 300) for m in vj for s in ("kmain", "kgrav")]         + [cmd(f"rcprobe:{m}:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", m, "--set", s, "--target", t], 1200)
+           for m in vj for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcblocks", ["-m", "pilot.recapture", "blocks"], 3600)]
     jobs["rc14bfinish"] = [cmd("rcprobe:cosmos14b:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", "kgrav",
                                                              "--target", "g"], 1500),
                            cmd("rcpair14b", ["-m", "pilot.recapture", "pair"], 120),
@@ -622,7 +627,7 @@ def _rc_jobs():
     # host benchmark only: 120 s sustained bf16 matmul with power and clock sampling (the pre-setup check runs 30 s)
     jobs["gpubench"] = [cmd("gpubench", ["scripts/gpu_check.py", "--tag", "_ltx_gpubench_long", "--seconds", "120"], 300)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rcvjepa"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
     return jobs
 
 

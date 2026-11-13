@@ -76,6 +76,28 @@ class VJEPA:
                 "encoder/obj": np.stack([o for o, _ in layers[1:]])[:, None], "encoder/all": np.stack([a for _, a in layers[1:]])[:, None],
                 "predictor/all": pred[0].float().mean(0).cpu().numpy()[None, None]}
 
+    @torch.no_grad()
+    def pooled(self, frames, pools):
+        """Red-team re-capture (2026-11-13): {name: (bool (T, g, g) mask, mode)} pooled at every hidden state.
+        mode "mean" (all masked tokens), "pf" (mean per tubelet frame, concatenated) or "flat" (patch embeddings only).
+        -> vae/{name} from hidden state 0 (the input-level baseline) and encoder/{name} (layers, 1, D) for the rest."""
+        hs = self.model(pixel_values_videos=self.pixels(frames), skip_predictor=True, output_hidden_states=True).hidden_states
+        out = {}
+        for name, (mask, mode) in pools.items():
+            m = torch.as_tensor(mask.reshape(mask.shape[0], -1), device=self.device)
+
+            def red(h):
+                h = h.view(m.shape[0], m.shape[1], -1)
+                if mode == "mean":
+                    return h[m].float().mean(0)
+                if mode == "pf":
+                    return torch.cat([h[f][m[f]].float().mean(0) for f in range(m.shape[0]) if m[f].any()])
+                return h[m].float().reshape(-1)
+            out[f"vae/{name}"] = red(hs[0][0]).cpu().numpy().astype(np.float16)
+            if mode != "flat":
+                out[f"encoder/{name}"] = torch.stack([red(h[0]) for h in hs[1:]])[:, None].cpu().numpy()
+        return out
+
     def predict(self, ctx, n_ctx, n_total):
         nc, n = n_ctx // self.tub * self.per_t(), n_total // self.tub * self.per_t()
         idx = torch.arange(n, device=self.device)[None]
@@ -136,6 +158,35 @@ def run_surprise(vj, scene_root, render_root, out, n_ctx, shard=None, frames_fn=
     return df, summ
 
 
+def rc_acts(vj, name, sset, cfg):
+    """Fixed-box pools as pilot.recapture, on the V-JEPA token grid: runs/rc/{name}/{scene}_s0, read by its probe."""
+    from pilot.generate import rendered_inputs
+    from pilot.recapture import SETS, SIZE_EXP, box_mask, cell_mask, centre_and_union, family, fix_sizes
+    from pilot.shard import scene_list
+    exp = SETS[sset]
+    e, data = cfg["experiments"][exp], Path(cfg["paths"]["data"])
+    sizes = fix_sizes(scene_list(cfg, SIZE_EXP[sset]), ACT_FRAMES, ACT_FPS)
+    g = vj.size // vj.patch
+    grid = (ACT_FRAMES // vj.tub, g, g)
+    for spec in scene_list(cfg, exp):
+        out = Path(cfg["paths"]["runs"]) / "rc" / name / f"{spec['id']}_s0"
+        if (out / "meta.json").exists():
+            continue
+        frames, union = rendered_inputs(spec, data / "renders" / e["scenes"], ACT_FPS, ACT_FRAMES)
+        in_wh = (frames[0].shape[1], frames[0].shape[0])
+        (u, v, r), fam = centre_and_union(spec, ACT_FRAMES, ACT_FPS)[0], family(spec)
+        fix = cell_mask(grid, grid[0], (u, v), sizes[fam], in_wh)
+        acts = vj.pooled(frames, {"obj": (box_mask(grid, grid[0], union, in_wh), "mean"), "fix": (fix, "mean"),
+                                  "fix_pf": (fix, "pf"), "fix_flat": (fix, "flat"),
+                                  "f0": (cell_mask(grid, grid[0], (u, v), (2 * r, 2 * r), in_wh, frame0_only=True), "mean")})
+        out.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(out / "acts.npz", **acts)
+        (out / "meta.json").write_text(json.dumps(dict(model=name, scene=spec["id"], set=sset, seed=0, fps=ACT_FPS,
+                                                       cond_frames=ACT_FRAMES, union=[float(x) for x in union],
+                                                       fix_size=list(sizes[fam]))))
+        print(f"rc {name} {spec['id']}", flush=True)
+
+
 def gamma(name, out, runs="runs"):
     feats, y, g = probe.load(runs, name, ["b5"], "g")
     rows = []
@@ -151,10 +202,10 @@ def gamma(name, out, runs="runs"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["acts", "surprise", "gamma"])
+    ap.add_argument("cmd", choices=["acts", "surprise", "gamma", "rc"])
     ap.add_argument("--model", required=True, choices=sorted(MODELS))
     ap.add_argument("--exp", help="acts: b1 or b5")
-    ap.add_argument("--set", choices=sorted(SURPRISE_SETS))
+    ap.add_argument("--set", choices=sorted(SURPRISE_SETS) + ["kmain", "kgrav"])
     ap.add_argument("--out", type=Path)
     ap.add_argument("--stride", type=int, default=1, help="surprise: every stride-th frame")
     ap.add_argument("--config", default="configs/pilot.yaml")
@@ -166,6 +217,9 @@ def main():
     vj = VJEPA.load(a.model)
     if a.cmd == "acts":
         write_acts(vj, a.model, a.exp, cfg)
+        return
+    if a.cmd == "rc":
+        rc_acts(vj, a.model, a.set, cfg)
         return
     data = Path(cfg["paths"]["data"])
     a.out.parent.mkdir(parents=True, exist_ok=True)

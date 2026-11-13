@@ -207,6 +207,15 @@ def boot_ci(d, groups, n=10000, seed=0):
     return per.mean(), np.percentile(bs, 2.5), np.percentile(bs, 97.5), float((np.abs(flips) >= abs(per.mean())).mean())
 
 
+def window(model, config="configs/pilot.yaml"):
+    """(input frames, fps) of a model's input window; V-JEPA's comes from pilot.vjepa."""
+    if model.startswith("vjepa"):
+        from pilot.vjepa import ACT_FPS, ACT_FRAMES
+        return ACT_FRAMES, ACT_FPS
+    mcfg = yaml.safe_load(open(config))["models"][model.removesuffix("_rand")]
+    return mcfg["cond_frames"], mcfg["fps"]
+
+
 def probe_cmd(a):
     import pandas as pd
     from sklearn.model_selection import GroupKFold
@@ -230,8 +239,8 @@ def probe_cmd(a):
         preds[f"vae_{pool}"] = vae_pred(Z, rows, pool, y, groups, folds)
     # box-position baseline: the fix box has constant size per family, so all it carries is family + frame-0 centre
     from pilot.recapture import centre_and_union
-    mcfg = yaml.safe_load(open(a.config))["models"][a.model.removesuffix("_rand")]
-    G = np.array([[*centre_and_union(r[2], mcfg["cond_frames"], mcfg["fps"])[0][:2], family(r[2]) == "cv"] for r in rows], float)
+    nf, fps = window(a.model, a.config)
+    G = np.array([[*centre_and_union(r[2], nf, fps)[0][:2], family(r[2]) == "cv"] for r in rows], float)
     preds["geo_fixbox"] = flat_pred(G, y, groups, folds)
     preds["mean"] = np.empty_like(y)
     for tr, te in folds:
@@ -339,6 +348,38 @@ def inshow_cmd(a):
 
 
 PAIR = (("kmain", "hspeed"), ("kgrav", "g"))
+BLOCK_MODELS = ("ltx2b", "cosmos2b", "cosmos14b", "cosmos3_nano", "vjepa2l", "vjepa2g")   # VACE: kgrav has 10 scenes
+
+
+def blocks_cmd(a):
+    """H3 on the fixed box (2026-11-13): per block, the out-of-fold fix_pf probe's gamma (slope of ln pred on ln true;
+    1 = follows the target, 0 = one prior value) and sym MRA, against the input readout (VAE fix_flat; V-JEPA: patch
+    embeddings). Exploratory, no Holm family. -> results/rc_blocks.csv"""
+    import pandas as pd
+    from sklearn.model_selection import GroupKFold
+    from pilot import metrics
+    out = []
+    for model in BLOCK_MODELS:
+        for sset, target in PAIR:
+            rows = load(model, sset, target)
+            if not rows:
+                print("no clips", model, sset, flush=True)
+                continue
+            y = np.array([r[3] for r in rows])
+            groups = np.array([r[1]["scene"].split("_g")[0] for r in rows])
+            Z = [np.load(r[0]) for r in rows]
+            folds = list(GroupKFold(5).split(y, y, groups))
+            ks = [k for k in Z[0].files if k.endswith("/fix_pf") and not k.startswith("vae/")]
+            Xb = np.concatenate([np.stack([z[k][:, 0].astype(np.float32) for z in Z], 1) for k in ks])
+            preds = [("vae_fix_flat", -1, vae_pred(Z, rows, "fix_flat", y, groups, folds))] + \
+                [("acts_fix_pf", b, flat_pred(Xb[b], y, groups, folds)) for b in range(Xb.shape[0])]
+            for readout, b, p in preds:
+                gm, (lo, hi) = metrics.gamma_fit(p, y, groups=groups)
+                out.append(dict(model=model, set=sset, target=target, readout=readout, block=b, gamma=gm, lo=lo, hi=hi,
+                                sym_mra=float(metrics.sym_mra(p, y).mean()), n=len(y), n_scenes=len(np.unique(groups))))
+            print(pd.DataFrame(out[-len(preds):]).to_string(index=False), flush=True)
+    Path("results").mkdir(exist_ok=True)
+    pd.DataFrame(out).to_csv("results/rc_blocks.csv", index=False)
 EQ_MARGIN = 0.05
 
 
@@ -376,7 +417,7 @@ def summary_cmd(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary", "inshow", "pair"])
+    ap.add_argument("cmd", choices=["gen", "probe", "check", "summary", "inshow", "pair", "blocks"])
     ap.add_argument("--model")
     ap.add_argument("--set", default="kmain", help="gen: one of %s; probe: sets joined by +, e.g. kmain+kmainf" % list(SETS))
     ap.add_argument("--target", default="hspeed")
@@ -387,7 +428,7 @@ def main():
     ap.add_argument("--family", help="summary: Holm over this model's tests only (models in SEPARATE_FAMILIES)")
     ap.add_argument("--config", default="configs/pilot.yaml")
     a = ap.parse_args()
-    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd, inshow=inshow_cmd, pair=pair_cmd)[a.cmd](a)
+    dict(gen=gen, probe=probe_cmd, check=check_cmd, summary=summary_cmd, inshow=inshow_cmd, pair=pair_cmd, blocks=blocks_cmd)[a.cmd](a)
 
 
 if __name__ == "__main__":
