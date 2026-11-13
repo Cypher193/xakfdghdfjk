@@ -612,6 +612,8 @@ def _rc_jobs():
                                                          "--target", "g"], 900),
                           cmd("rcinshow", ["-m", "pilot.recapture", "inshow"], 900)]
     LTX_RUNS["rcvacegrav"] = ["runs/rc/vace13"]
+    # rcvacegrav generation took 2.05 h (est 1 h), so the budget skipped the rest; this finishes it without the model
+    jobs["rcvacegravfin"] = jobs["rcvacegrav"][1:]
     jobs["rc14bfinish"] = [cmd("rcprobe:cosmos14b:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", "kgrav",
                                                              "--target", "g"], 1500),
                            cmd("rcpair14b", ["-m", "pilot.recapture", "pair"], 120),
@@ -620,7 +622,7 @@ def _rc_jobs():
     # host benchmark only: 120 s sustained bf16 matmul with power and clock sampling (the pre-setup check runs 30 s)
     jobs["gpubench"] = [cmd("gpubench", ["scripts/gpu_check.py", "--tag", "_ltx_gpubench_long", "--seconds", "120"], 300)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
     return jobs
 
 
