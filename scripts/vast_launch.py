@@ -212,7 +212,7 @@ def worker_offers(a):
 
 
 def worker_create_cmd(offer_id, label, a, url):
-    onstart = (f"cd /workspace && git clone {REPO} cvpr_vail && cd cvpr_vail && setsid nohup bash {POD_SCRIPT} "
+    onstart = (f"cd /workspace && git clone {REPO} cvpr_vail && cd cvpr_vail && {'SKIP_GPU_CHECK=1 ' if a.skip_gpu_check else ''}setsid nohup bash {POD_SCRIPT} "
                f"{a.job} {a.budget_h} > /workspace/ltx.out 2>&1 < /dev/null &")
     cmd = [VASTAI, "create", "instance", offer_id, "--template_hash", TEMPLATE, "--disk", a.disk, "--label", label]
     if url:
@@ -373,6 +373,7 @@ def main():
         p.add_argument("--ram", type=int, default=32)
         p.add_argument("--disk", type=int, default=disk)
         p.add_argument("--geo", help="2-letter country, e.g. US (default: anywhere but CN)")
+        p.add_argument("--skip-gpu-check", action="store_true", help="skip the pre-setup GPU check (only with the user's yes)")
         p.add_argument("--not-machine", type=int, nargs="*", default=[], help="machine_ids to skip (e.g. a host that never finished pulling the image)")
     w = sub.add_parser("worker")
     w.add_argument("job")
