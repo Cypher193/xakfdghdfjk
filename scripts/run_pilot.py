@@ -627,7 +627,9 @@ def _rc_jobs():
     # host benchmark only: 120 s sustained bf16 matmul with power and clock sampling (the pre-setup check runs 30 s)
     jobs["gpubench"] = [cmd("gpubench", ["scripts/gpu_check.py", "--tag", "_ltx_gpubench_long", "--seconds", "120"], 300)]
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rcvjepa"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = []
+    # CVPR review follow-ups (user, 2026-11-15): input probe on measurable clips only, paired know, seed-0 bias
+    jobs["reviewcpu"] = [cmd("review", ["-m", "pilot.review_recompute"], 3600)]
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rcvjepa"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = LTX_RUNS["reviewcpu"] = []
     return jobs
 
 

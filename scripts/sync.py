@@ -190,6 +190,10 @@ elif os.environ.get("LTX_JOB"):
     if j == "rcpair14b":                  # both Cosmos rc runs in; per-clip tables, re-run probes and the pair table out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos2b/**", "runs/rc/cosmos14b/**"] + mine
         PUSH_PATTERNS = mine + ["results/rcclips_cosmos*", "results/rc_pair14b.csv"]
+    if j == "reviewcpu":                  # every generator's rc acts + the tracker clip tables in; two review tables out
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + ["results/c3_*_v2_nested_clips.csv"] + \
+            [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b") for f in ("acts.npz", "meta.json")]
+        PUSH_PATTERNS = mine + ["results/review_inshow_meas.csv", "results/review_bias_seed0.csv"]
     if j == "rcinshow":                   # rc acts (VAE pools) + the tracker clip tables in; one table out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + \
             [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b") for f in ("acts.npz", "meta.json")] + \
