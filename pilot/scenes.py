@@ -101,12 +101,24 @@ def ramp_track(scene, obj, t):
     return x, obj["z0"] - s * math.sin(th)
 
 
+def incline_track(scene, obj, t):
+    """Constant acceleration along a straight track tilted theta_deg, downhill towards x direction `dir` (theta 0: a
+    flat floor). s(t) = v0 t + a_s t^2 / 2 along +dir-downhill; the object stops for good at t_stop (static friction)."""
+    th = math.radians(obj["theta_deg"])
+    t = np.asarray(t, float)
+    tt = np.minimum(t, obj["t_stop"]) if obj.get("t_stop") is not None else t
+    s = obj["v0"] * tt + 0.5 * obj["a_s"] * tt ** 2
+    return obj["x0"] + obj["dir"] * s * math.cos(th), obj["z0"] - s * math.sin(th)
+
+
 def object_track(scene, obj, t):
     """Centre (x, z) in metres at times t. scene["vswitch"] = [t_s, k]: the velocity is multiplied by k at t_s (C2).
     scene["vturn"] = [t_s, deg]: the velocity turns by deg at t_s, upward relative to the direction of travel
     (180 = reversed), same speed; floor objects then glide in a straight line, balls stay ballistic (C2-turn)."""
     if obj["motion"] == "ramp":
         return ramp_track(scene, obj, t)
+    if obj["motion"] == "incline":
+        return incline_track(scene, obj, t)
     t = np.asarray(t, float)
     floor = scene["floor_z"] + obj["size_m"] / 2
     if "vturn" in scene:
@@ -241,6 +253,65 @@ def make_ramp(rng, sid):
     return sc
 
 
+ACC_SCENARIOS = ("rd", "ru", "sd", "br")   # ball rolls down / is rolled up a slope; box slides down a slope / brakes
+ACC_T_MIN = 2.5                          # the object stays wholly in frame at least this long (s)
+ACC_EDGE = 2.33                          # half the frame width at the motion plane (m): 50 deg FOV at 5 m
+
+
+def make_accel(rng, sid, scenario):
+    """Acceleration family (2026-11-16): constant horizontal acceleration, speeding up or slowing down, still moving
+    after the longest input window (1.06 s). v0 and a are drawn independently, from ranges in which every pair meets
+    the limits (in frame for ACC_T_MIN, turn or stop after 1.2 s, within the frame), so no draw is rejected and the
+    visible start speed carries no information about a. a is log-uniform.
+    rd: ball rolls down a gentle slope, a = 5/7 g sin(theta) (rolling sphere). ru: ball launched up the slope, slows,
+    turns and rolls back (same law). sd: box slides down a steeper slope with friction, a = g (sin - mu cos).
+    br: box slides on the flat floor and friction stops it, a = -mu g. The slope is visible in every frame, friction
+    is not. gt ax = |horizontal acceleration| (the probe target); speeding = speeds up from its start velocity."""
+    d = float(rng.choice([-1, 1]))                     # downhill direction (br: direction of travel)
+    ball = scenario in ("rd", "ru")
+    size = round(float(rng.uniform(0.15, 0.30)), 3)
+    o = dict(shape="sphere" if ball else "cube", motion="incline", color=str(rng.choice(COLORS)), size_m=size, dir=d,
+             vz0=0.0, e=None, t_stop=None)
+    logu = lambda lo, hi: float(math.exp(rng.uniform(math.log(lo), math.log(hi))))
+    if scenario == "rd":
+        a_s, v0 = logu(0.2, 1.0), float(rng.uniform(0.05, 0.3))
+        th, x0 = math.degrees(math.asin(a_s * 7 / (5 * G))), -d * 2.1
+    elif scenario == "ru":
+        a_s, v0 = logu(0.25, 0.75), -float(rng.uniform(0.9, 1.4))
+        th, x0 = math.degrees(math.asin(a_s * 7 / (5 * G))), d * 2.0
+        assert abs(v0) / a_s >= 1.2, "turns inside the input window"
+        assert v0 ** 2 / (2 * a_s) * math.cos(math.radians(th)) <= 3.95, "turns out of frame"
+    elif scenario == "sd":
+        th, a_s, v0 = float(rng.uniform(10, 20)), logu(0.2, 1.0), float(rng.uniform(0.0, 0.3))
+        o["mu"] = math.tan(math.radians(th)) - a_s / (G * math.cos(math.radians(th)))
+        assert 0.05 <= o["mu"] <= 0.5, "implausible friction"
+        x0 = -d * 2.1
+    else:
+        th, v0, dec = 0.0, float(rng.uniform(1.0, 1.6)), logu(0.33, 0.83)
+        a_s, x0, o["mu"], o["t_stop"] = -dec, -d * 2.0, dec / G, v0 / dec
+        assert o["t_stop"] >= 1.2, "stops inside the input window"
+        assert v0 ** 2 / (2 * dec) <= 3.9, "stops out of frame"
+    tan = math.tan(math.radians(th))
+    z_low = -1.0 + size / 2 + 0.05 * (th > 0)         # centre line height at the frame's downhill edge
+    o.update(theta_deg=th, v0=v0, a_s=a_s, x0=x0, z0=z_low + (d * ACC_EDGE - x0) * d * tan)
+    speeding = v0 == 0 or (v0 > 0) == (a_s > 0)
+    return dict(id=sid, family="accel", gravity=[(0.0, G)], objects=[o],
+                gt=dict(ax=abs(a_s) * math.cos(math.radians(th)), a_s=a_s, v0=v0, theta_deg=th, mu=o.get("mu"),
+                        scenario=scenario, speeding=bool(speeding)))
+
+
+def accel_in_frame(scene, cam, cfg):
+    """Time (s) the object first touches the frame edge (inf if never); asserts it stays in for ACC_T_MIN."""
+    o, r = scene["objects"][0], cfg["render"]
+    t = np.arange(int(round(r["duration_s"] * r["fps"]))) / r["fps"]
+    u, _ = project(cam, *object_track(scene, o, t))
+    rad = o["size_m"] / 2 * px_per_m(cam)
+    out = (u - rad < 0) | (u + rad > cam["width"])
+    t_exit = float(t[np.argmax(out)]) if out.any() else math.inf
+    assert t_exit >= ACC_T_MIN, "leaves the frame too soon"
+    return t_exit
+
+
 # ---------------------------------------------------------------- text
 def _bin(x, edges, words):
     return words[int(np.searchsorted(edges, x))]
@@ -268,12 +339,21 @@ def caption(scene):
         return f"A {o['color']} ball rolls across a floor towards a {scene['objects'][1]['color']} ball. Static camera."
     if scene["family"] == "ramp":
         return f"A {o['color']} box slides down a ramp onto a floor. Static camera."
+    if scene["family"] == "accel":
+        where = "on a sloped ramp" if o["theta_deg"] > 0 else "across a floor"
+        return f"A {o['color']} {NOUN[o['shape']]} {VERB[o['shape']]} {where}. Static camera."
     return f"A {o['color']} ball bounces on a floor. Static camera."
 
 
 def describe(scene):
     """B2-nl: the same information in plain words, without numbers."""
     o = scene["objects"][0]
+    if scene["family"] == "accel":
+        what = {"rd": "rolls down a gently sloped ramp, speeding up",
+                "ru": "is rolled up a sloped ramp, slows down, stops and rolls back down",
+                "sd": "slides down a sloped ramp, speeding up",
+                "br": "slides across a floor and friction slows it to a stop"}[scene["gt"]["scenario"]]
+        return f"A {o['color']} {NOUN[o['shape']]}, {SIZE(o['size_m'])}, {what}. Seen side-on from a fixed camera."
     if scene["family"] == "ramp":
         return (f"A {o['color']} box, {SIZE(o['size_m'])}, is released from rest at the top of a {STEEP(o['theta_deg'])}, "
                 f"{ROUGH(o['mu'])} ramp and slides down to the {'right' if o['dir'] > 0 else 'left'}, speeding up. "
@@ -332,11 +412,11 @@ def set_tracks(scene, cam, cfg, strict=True):
     scene["tracks"] = tracks
 
 
-def finalise(scene, cam, cfg, rng):
+def finalise(scene, cam, cfg, rng, strict=True):
     r = cfg["render"]
     scene.update(camera=cam, floor_z=cam["floor_z"], duration_s=r["duration_s"], fps=r["fps"],
                  env_seed=int(rng.integers(1 << 31)))
-    set_tracks(scene, cam, cfg)
+    set_tracks(scene, cam, cfg, strict=strict)
     scene["caption"] = caption(scene)
     scene["b2nl"] = describe(scene)
     if scene["family"] in ("cv", "bounce"):
@@ -353,7 +433,7 @@ def _draw(make, rng, sid, cam, cfg):
             pass
 
 
-def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n_grav_all=30, n_ratio2=40, n_l3=15):
+def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n_grav_all=30, n_ratio2=40, n_l3=15, n_acc=25):
     # one random stream per family, so changing one family never reshuffles the others
     streams = {f: np.random.default_rng([seed, k]) for k, f in enumerate(("kmain", "kgrav", "kratio", "kcont"))}
     cam = camera(cfg)
@@ -390,6 +470,19 @@ def build(cfg, seed=0, n_cv=15, n_bounce=15, n_grav=10, n_ratio=10, n_more=35, n
     rng = np.random.default_rng([seed, 7])
     out["kl3"] = [_draw(make_collide, rng, f"kl3_co_{i:02d}", cam, cfg) for i in range(n_l3)]
     out["kl3"] += [_draw(make_ramp, rng, f"kl3_ra_{i:02d}", cam, cfg) for i in range(n_l3)]
+    # Acceleration family (2026-11-16): 25 scenes per scenario, own stream; objects may leave the frame after ACC_T_MIN
+    rng = np.random.default_rng([seed, 8])
+    out["kacc"] = []
+    for scn in ACC_SCENARIOS:
+        for i in range(n_acc):
+            while True:
+                try:
+                    s = finalise(make_accel(rng, f"kacc_{scn}_{i:02d}", scn), cam, cfg, rng, strict=False)
+                    s["gt"]["t_exit"] = accel_in_frame(s, cam, cfg)
+                    break
+                except AssertionError:
+                    pass
+            out["kacc"].append(s)
     # C2-g: first part at Earth gravity, then switch at the end of the Cosmos input window.
     # Own bases, lower and less bouncy: after a switch to 0.25 g the bounce height is ~ e^2 (h + 1.44 m).
     t_switch = cfg["models"]["cosmos2b"]["cond_frames"] / cfg["models"]["cosmos2b"]["fps"]
@@ -479,9 +572,12 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="data/scenes")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--fresh", type=int, help="write only the replication sets kmainf / kgravf, drawn with this seed")
+    ap.add_argument("--only", nargs="*", help="write only these sets, e.g. kacc")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
     sets = fresh_sets(cfg, a.fresh) if a.fresh is not None else build(cfg, a.seed)
+    if a.only:
+        sets = {k: v for k, v in sets.items() if k in a.only}
     for name, scenes in sets.items():
         d = Path(a.out) / name
         d.mkdir(parents=True, exist_ok=True)

@@ -108,6 +108,26 @@ def add_ramp(o, floor_z):
     mesh.materials.append(material("ramp", color=(0.32, 0.27, 0.22), roughness=0.7))
 
 
+def add_incline(o, floor_z):
+    """Long wedge under an incline track (acceleration family): its top surface carries the object's lowest point,
+    from beyond the frame's uphill edge down to where it meets the floor, past the downhill edge."""
+    th, d, h = math.radians(o["theta_deg"]), o["dir"], o["size_m"] / 2
+    off = h / math.cos(th)                                    # centre line to surface, measured vertically
+    z_at = lambda x: o["z0"] - off + (o["x0"] - x) * d * math.tan(th)
+    xt = -d * 3.6
+    xf = o["x0"] + d * (o["z0"] - off - floor_z) / math.tan(th)  # surface meets the floor
+    zt = z_at(xt)
+    y = 0.75
+    verts = [(xt, -y, zt), (xf, -y, floor_z), (xt, -y, floor_z), (xt, y, zt), (xf, y, floor_z), (xt, y, floor_z)]
+    faces = [(0, 1, 2), (3, 5, 4), (0, 3, 4, 1), (2, 1, 4, 5), (0, 2, 5, 3)]   # triangular prism
+    mesh = bpy.data.meshes.new("incline")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    ob = bpy.data.objects.new("incline", mesh)
+    bpy.context.scene.collection.objects.link(ob)
+    mesh.materials.append(material("incline", color=(0.32, 0.27, 0.22), roughness=0.7))
+
+
 def setup(scene_spec, gpu, samples, fps, seconds):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     # linear between keyframes, so motion blur samples sit on the true path (no Bezier overshoot)
@@ -190,6 +210,10 @@ def setup(scene_spec, gpu, samples, fps, seconds):
         for f, (x, z) in enumerate(zip(xs, zs), start=1):
             ob.location = (x, 0.0, z)
             ob.keyframe_insert("location", frame=f)
+        if o["motion"] == "incline" and o["theta_deg"] > 0:   # acceleration family: one slope the whole clip
+            add_incline(o, cam_spec["floor_z"])
+            if o["shape"] == "cube":
+                ob.rotation_euler = (0.0, o["dir"] * math.radians(o["theta_deg"]), 0.0)
         if o["motion"] == "ramp":                             # the box lies on the slope, then flat on the floor
             add_ramp(o, cam_spec["floor_z"])
             t_foot = ramp_foot(scene_spec, o)[1]

@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-SETS = {"kmain": "b1", "kmainf": "b1f", "kgrav": "b5"}   # scene set -> experiment (scene list, caption key)
-SIZE_EXP = {"kmain": "b1", "kmainf": "b1", "kgrav": "b5"}   # fix box sizes always come from the original set
+SETS = {"kmain": "b1", "kmainf": "b1f", "kgrav": "b5", "kacc": "bacc"}   # scene set -> experiment (scene list, caption key)
+SIZE_EXP = {"kmain": "b1", "kmainf": "b1", "kgrav": "b5", "kacc": "bacc"}   # fix box sizes always come from the original set
 SEPARATE_FAMILIES = ("cosmos14b",)   # added after the 8-test family ran (2026-11-11): own Holm family, pre-registered
 FRACTION = [0.25]
 PCTL = 90                                        # fix box size: this percentile of the union-box size per family

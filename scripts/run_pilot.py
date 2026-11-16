@@ -638,9 +638,36 @@ def _rc_jobs():
     return jobs
 
 
+# Acceleration family (user, 2026-11-16, vast): `accrender` writes the 100 kacc scenes, renders their input windows and
+# 13 full clips, and checks both trackers on the full clips (P0). Then per model, shard K/N generates seed 0, re-captures
+# the fixed-box acts and scores with both trackers. `accfin` (CPU): know probes and input vs show per model.
+KACC_IDS = sorted(f"kacc_{s}_{i:02d}" for s in ("br", "rd", "ru", "sd") for i in range(25))
+ACC_PODS = {"ltx2b": (1, 80, 20), "cosmos2b": (3, 350, 110), "vace13": (3, 420, 115), "cosmos3_nano": (2, 300, 70)}
+_full = f"python -m pilot.shard --exp bacc --shard 1/8 --write-shard data/shard_kaccfull && {BPY} -m pilot.render data/shard_kaccfull --out data/renders/kaccfull --gpu"
+ACC_RENDER = [
+    cmd("scenes:kacc", ["-m", "pilot.scenes", "--out", "data/scenes", "--only", "kacc"], 60),
+    dict(name="render:kacc", kind="cmd", est_s=100 * 40, cmd=[
+        "bash", "-c", f"{BPY} -m pilot.render data/scenes/kacc --out data/renders/kacc --gpu --fps 48 --seconds 1.125 --suffix _input"]),
+    dict(name="render:kaccfull", kind="cmd", est_s=13 * 120, cmd=["bash", "-c", _full])] + \
+    [cmd(f"p0:kacc:{tr}", ["-m", "pilot.track", "validate", "data/renders/kaccfull", "--scenes", "data/scenes/kacc",
+                           "--tracker", tr, "--out", f"results/p0_kacc_{tr}_ltx_accrender.csv"], 13 * 30)
+     for tr in ("sam2", "cotracker3")]
+for _m, (_n, _ps, _rc) in ACC_PODS.items():
+    for _k in range(1, _n + 1):
+        _name, _ids = f"{_m}acc{_k}of{_n}", KACC_IDS[_k - 1::_n]
+        MODEL_JOBS[_name] = [gen(_m, "bacc", None, [0], shard=f"{_k}/{_n}", ids=_ids) | dict(per_s=_ps),
+                             dict(name=f"rc:{_m}:kacc", kind="cmd", model=_m, out=[f"runs/rc/{_m}"], est_s=LOAD_S + len(_ids) * _rc,
+                                  cmd=[PY, "-m", "pilot.recapture", "gen", "--model", _m, "--set", "kacc", "--shard", f"{_k}/{_n}"])] + \
+            [cmd(f"score:{_name}:{tr}", ["-m", "pilot.score", "--models", _m, "--tracker", tr, "--table",
+                                         f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 20 * len(_ids))
+             for tr in ("sam2", "cotracker3")]
+        NARROW_PULL.add(_name)
+ACC_FIN = [cmd(f"rcprobe:{m}:kacc:ax", ["-m", "pilot.recapture", "probe", "--model", m, "--set", "kacc", "--target", "ax"], 1500)
+           for m in ACC_PODS] + [cmd("accsummary", ["-m", "pilot.accel", "--models", *ACC_PODS], 900)]
 RC_JOBS = _rc_jobs()
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
-    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS
+    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS | {"accfin": ACC_FIN, "accrender": ACC_RENDER}
+LTX_RUNS["accfin"] = LTX_RUNS["accrender"] = []
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

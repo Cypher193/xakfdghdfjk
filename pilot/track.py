@@ -228,8 +228,31 @@ def fit_bounce(t, z, z_floor, g_grid=np.geomspace(0.3, 60, 25), e_grid=(0.3, 0.5
                 rmse=float(np.sqrt(np.mean(r.fun ** 2))), contacts=contacts)
 
 
-def readout(family, t, xs, zs, t_start):
-    """Kinematic readout from tracks in metres. xs, zs: lists per object. Only t >= t_start is scored."""
+def accel_window(t, x, x_edge, margin=0.15, rest_m=0.03, min_s=0.75):
+    """Indices of a track (metres) that a constant-acceleration fit may use: from the start to the first frame the
+    object is lost or within `margin` of the frame edge, and before it comes to rest for good. None if under min_s
+    seconds remain."""
+    ok = ~np.isnan(x) & (np.abs(np.nan_to_num(x, nan=1e9)) < x_edge - margin)
+    n = int(np.argmin(ok)) if not ok.all() else len(x)
+    if n < 6:
+        return None
+    tw, xw = t[:n], x[:n]
+    # at rest for good from the first frame after which the position stays within `rest_m` (noise-robust, unlike a
+    # differentiated speed); cut there if that rest lasts at least 0.5 s
+    d2 = np.diff(xw, 2)                                   # noise from second differences (robust MAD; motion adds
+    rest_m = max(rest_m, 6 * 1.4826 * np.median(np.abs(d2 - np.median(d2))) / np.sqrt(6))   # only a dt^2 ~ 4 mm)
+    span = np.maximum.accumulate(xw[::-1])[::-1] - np.minimum.accumulate(xw[::-1])[::-1]
+    first = int(np.argmax(span < rest_m))
+    if span[first] < rest_m and tw[-1] - tw[first] >= 0.5:
+        n = first + 1
+    if n < 6 or t[n - 1] - t[0] < min_s:
+        return None
+    return slice(0, n)
+
+
+def readout(family, t, xs, zs, t_start, x_edge=None):
+    """Kinematic readout from tracks in metres. xs, zs: lists per object. Only t >= t_start is scored.
+    x_edge: half the frame width in metres (acceleration family only)."""
     w = t >= t_start
     out = {}
     if family == "cv":
@@ -278,6 +301,15 @@ def readout(family, t, xs, zs, t_start):
         if foot >= 6:
             out["a_slope"] = abs(2 * np.polyfit(tw[:foot], x[:foot], 2)[0])
         return out
+    if family == "accel":                                    # quadratic over the generated motion, before stop / exit
+        tw, x = t[w], xs[0][w]
+        sel = accel_window(tw, x, x_edge)
+        if sel is not None:
+            c = np.polyfit(tw[sel], x[sel], 2)
+            v_start = np.polyval(np.polyder(c), tw[sel][0])
+            out.update(ax=abs(2 * c[0]), speeding=bool(np.sign(c[0]) == np.sign(v_start)),
+                       fit_s=float(tw[sel][-1] - tw[sel][0]))
+        return out
     raise ValueError(family)
 
 
@@ -285,7 +317,7 @@ def gt_boxes(spec, frame=0):
     """Ground-truth boxes on one frame from the analytic tracks."""
     boxes = []
     for o, tr in zip(spec["objects"], spec["tracks"]):
-        th = math.radians(o.get("theta_deg", 0.0))            # the whole tilted box, or SAM2 masks only part of it
+        th = math.radians(o.get("theta_deg", 0.0)) if o["shape"] != "sphere" else 0.0   # the whole tilted box, or SAM2 masks only part of it
         u, v, r = tr["u_px"][frame], tr["v_px"][frame], tr["radius_px"] * (math.cos(th) + math.sin(th))
         boxes.append([u - r, v - r, u + r, v + r])
     return boxes
@@ -310,7 +342,7 @@ def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker
     i0 = int(np.searchsorted(t, t_start))
     xs, zs, ok = [], [], True
     for o, m, (c, area) in zip(spec["objects"], masks, object_tracks(frames, masks, tracker)):
-        th = math.radians(o.get("theta_deg", 0.0))            # a box tilted on a ramp spans (cos + sin) x its size on both axes
+        th = math.radians(o.get("theta_deg", 0.0)) if o["shape"] != "sphere" else 0.0   # a box tilted on a ramp spans (cos + sin) x its size on both axes
         s = px_per_m(m[:cond_frames], o["size_m"] * (math.cos(th) + math.sin(th)))
         xs.append((c[:, 0] - cam["cx"]) / s)
         zs.append(-(c[:, 1] - cam["cy"]) / s)
@@ -318,7 +350,8 @@ def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker
     res = dict(measurable=ok, fps=fps, n_frames=len(frames), tracker=tracker,
                faults=[mask_faults(frames, m, i0) for m in masks])
     if ok:
-        res.update(readout(spec["family"], t, xs, zs, t_start))
+        edge = {"x_edge": cam["cx"] / s} if spec["family"] == "accel" else {}   # s: metre scale of the (only) object
+        res.update(readout(spec["family"], t, xs, zs, t_start, **edge))
     res["track_px"] = [np.c_[(x * 1), (z * 1)].round(4).tolist() for x, z in zip(xs, zs)]
     return res
 

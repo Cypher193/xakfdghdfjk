@@ -177,6 +177,18 @@ elif os.environ.get("LTX_JOB"):
         G4, VJ = ("ltx2b", "cosmos2b", "cosmos14b", "cosmos3_nano"), ("vjepa2l", "vjepa2g")   # probes, blocks out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")] +             [f"runs/{e}/{m}/*_s0/{f}" for e in ("b1", "b5") for m in VJ for f in ("acts.npz", "meta.json")] +             [f"runs/rc/{m}/*_s0/{f}" for m in G4 + VJ for f in ("acts.npz", "meta.json")]
         PUSH_PATTERNS = mine + [f"runs/rc/{m}/**" for m in VJ] +             ["results/rc_vjepa2*", "results/rcclips_vjepa2*", "results/rc_check_vjepa2*", "results/rc_blocks.csv"]
+    if j == "accrender":                  # acceleration scenes, input and full renders, P0 tables out
+        PATTERNS = ["assets_cache/**"] + mine
+        PUSH_PATTERNS = mine + ["data/scenes/kacc/**", "data/renders/kacc/*_input*", "data/renders/kaccfull/*"]
+    if re.fullmatch(r"[a-z0-9_]+acc\d+of\d+", j):   # acceleration shard: also its clips' rc meta (skip on a relaunch)
+        _m = MODEL_JOBS[j][0]["model"]
+        PATTERNS += [f"runs/rc/{_m}/{i}_s0/meta.json" for i in MODEL_JOBS[j][0]["ids"]]
+    if j == "accfin":                     # every model's kacc rc acts + CoTracker3 scores in; probes and summary out
+        from run_pilot import ACC_PODS
+        PATTERNS = ["data/scenes/kacc/**"] + mine + \
+            [f"runs/rc/{m}/kacc_*_s0/{f}" for m in ACC_PODS for f in ("acts.npz", "meta.json")] + \
+            [f"runs/bacc/{m}/kacc_*_s0/score_v2.json" for m in ACC_PODS]
+        PUSH_PATTERNS = mine + ["results/rc_*_kacc_ax.csv", "results/rcclips_*_kacc_ax.csv", "results/acc_summary.csv"]
     if j == "rcvideomae":                 # input renders in; VideoMAE rc acts, probes and the rerun check out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]
         PUSH_PATTERNS = mine + ["runs/rc/videomael/**", "results/rc_videomael*", "results/rcclips_videomael*"]
