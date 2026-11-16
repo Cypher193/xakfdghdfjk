@@ -177,6 +177,9 @@ elif os.environ.get("LTX_JOB"):
         G4, VJ = ("ltx2b", "cosmos2b", "cosmos14b", "cosmos3_nano"), ("vjepa2l", "vjepa2g")   # probes, blocks out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")] +             [f"runs/{e}/{m}/*_s0/{f}" for e in ("b1", "b5") for m in VJ for f in ("acts.npz", "meta.json")] +             [f"runs/rc/{m}/*_s0/{f}" for m in G4 + VJ for f in ("acts.npz", "meta.json")]
         PUSH_PATTERNS = mine + [f"runs/rc/{m}/**" for m in VJ] +             ["results/rc_vjepa2*", "results/rcclips_vjepa2*", "results/rc_check_vjepa2*", "results/rc_blocks.csv"]
+    if j == "rcvideomae":                 # input renders in; VideoMAE rc acts, probes and the rerun check out
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]
+        PUSH_PATTERNS = mine + ["runs/rc/videomael/**", "results/rc_videomael*", "results/rcclips_videomael*"]
     if j == "rcvacegravfin":              # VACE gravity rc acts + originals in; check, probe and input vs show out
         M5 = ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"runs/b5/vace13/kgrav_0{k}_*_s0/{f}" for k in range(10) for f in ("acts.npz", "meta.json")] +             [f"runs/rc/{m}/*_s0/{f}" for m in M5 for f in ("acts.npz", "meta.json")] +             [f"results/c3_{m}_v2_nested_clips.csv" for m in M5]

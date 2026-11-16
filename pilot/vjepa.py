@@ -27,7 +27,8 @@ import yaml
 
 from pilot import metrics, probe
 
-MODELS = {"vjepa2l": "facebook/vjepa2-vitl-fpc64-256", "vjepa2g": "facebook/vjepa2-vitg-fpc64-384"}
+MODELS = {"vjepa2l": "facebook/vjepa2-vitl-fpc64-256", "vjepa2g": "facebook/vjepa2-vitg-fpc64-384",
+          "videomael": "MCG-NJU/videomae-large"}   # VideoMAE v1 ViT-L: same size, frames and box as vjepa2l, pixel objective
 N_FRAMES = 64                                                   # frames per clip in training (fpc64)
 SURPRISE_SETS = {"kvelv": 16, "kturnl": 24, "kcontl": 24}   # context frames: 1 s at the render fps, before the switch
 ACT_FPS, ACT_FRAMES = 16, 16                                    # C1 context: the first 1.0 s
@@ -76,12 +77,17 @@ class VJEPA:
                 "encoder/obj": np.stack([o for o, _ in layers[1:]])[:, None], "encoder/all": np.stack([a for _, a in layers[1:]])[:, None],
                 "predictor/all": pred[0].float().mean(0).cpu().numpy()[None, None]}
 
+    def hidden(self, frames):
+        """[patch embeddings without position, layer 1 output, ..., last layer output (before the final norm)].
+        V-JEPA 2 uses RoPE, so hidden state 0 is already the bare patch embedding."""
+        return self.model(pixel_values_videos=self.pixels(frames), skip_predictor=True, output_hidden_states=True).hidden_states
+
     @torch.no_grad()
     def pooled(self, frames, pools):
         """Red-team re-capture (2026-11-13): {name: (bool (T, g, g) mask, mode)} pooled at every hidden state.
         mode "mean" (all masked tokens), "pf" (mean per tubelet frame, concatenated) or "flat" (patch embeddings only).
         -> vae/{name} from hidden state 0 (the input-level baseline) and encoder/{name} (layers, 1, D) for the rest."""
-        hs = self.model(pixel_values_videos=self.pixels(frames), skip_predictor=True, output_hidden_states=True).hidden_states
+        hs = self.hidden(frames)
         out = {}
         for name, (mask, mode) in pools.items():
             m = torch.as_tensor(mask.reshape(mask.shape[0], -1), device=self.device)
@@ -110,6 +116,61 @@ class VJEPA:
         ctx = self.model.encoder(pixel_values_videos=pix[:, :n_ctx]).last_hidden_state
         tgt = self.model.encoder(pixel_values_videos=pix).last_hidden_state[:, n_ctx // self.tub * self.per_t():]
         return float((self.predict(ctx, n_ctx, len(frames)).float() - tgt.float()).abs().mean())
+
+
+class VideoMAE(VJEPA):
+    """VideoMAE v1 ViT-L (2026-11-16): the pixel-reconstruction twin of vjepa2l for the fixed-box probes only.
+    16 frames at 224 px, tubelet 2, patch 16 -> an (8, 14, 14) grid. Its hidden state 0 already holds the fixed
+    sinusoidal positions, so the input readout is taken from a hook on the patch embedding, as for V-JEPA 2."""
+
+    def __init__(self, model, mean, std, device):
+        c = model.config
+        c.crop_size = c.image_size
+        super().__init__(model, mean, std, device)
+
+    @classmethod
+    def load(cls, name, device="cuda"):
+        from transformers import AutoImageProcessor, VideoMAEModel
+        p = AutoImageProcessor.from_pretrained(MODELS[name])
+        m = VideoMAEModel.from_pretrained(MODELS[name], torch_dtype=torch.bfloat16).to(device)
+        return cls(m, p.image_mean, p.image_std, device)
+
+    def hidden(self, frames):
+        assert len(frames) == self.model.config.num_frames, len(frames)
+        got = []
+        hook = self.model.embeddings.patch_embeddings.register_forward_hook(lambda mod, i, o: got.append(o))
+        try:
+            hs = self.model(pixel_values=self.pixels(frames), output_hidden_states=True).hidden_states
+        finally:
+            hook.remove()
+        return (got[0],) + tuple(hs[1:])
+
+
+def load(name, device="cuda"):
+    return (VideoMAE if name.startswith("videomae") else VJEPA).load(name, device)
+
+
+def rerun_check(vj, name, sset, cfg, n=5):
+    """Determinism check (no original union-box acts exist to identify against): pool the first n clips again and
+    compare with the saved acts. Fails if any encoder pool differs by more than 1% of its norm."""
+    from pilot.generate import rendered_inputs
+    from pilot.recapture import SETS
+    from pilot.shard import scene_list
+    e, data = cfg["experiments"][SETS[sset]], Path(cfg["paths"]["data"])
+    worst = 0.0
+    for spec in scene_list(cfg, SETS[sset])[:n]:
+        d = Path(cfg["paths"]["runs"]) / "rc" / name / f"{spec['id']}_s0"
+        old, meta = np.load(d / "acts.npz"), json.loads((d / "meta.json").read_text())
+        frames, union = rendered_inputs(spec, data / "renders" / e["scenes"], ACT_FPS, ACT_FRAMES)
+        new = rc_pools(vj, spec, frames, union, tuple(meta["fix_size"]))
+        for k in ("encoder/fix", "encoder/fix_pf", "vae/fix_flat"):
+            a, b = old[k].astype(np.float32), new[k].astype(np.float32)
+            rel = float(np.linalg.norm(a - b) / max(np.linalg.norm(a), 1e-9))
+            worst = max(worst, rel)
+            print(f"rerun {spec['id']} {k}: rel diff {rel:.2e}", flush=True)
+    print(f"rerun worst rel diff {worst:.2e}")
+    if worst > 0.01:
+        raise SystemExit(3)
 
 
 def write_acts(vj, name, exp, cfg):
@@ -158,27 +219,33 @@ def run_surprise(vj, scene_root, render_root, out, n_ctx, shard=None, frames_fn=
     return df, summ
 
 
+def rc_pools(vj, spec, frames, union, size):
+    from pilot.recapture import box_mask, cell_mask, centre_and_union
+    g = vj.size // vj.patch
+    grid = (ACT_FRAMES // vj.tub, g, g)
+    in_wh = (frames[0].shape[1], frames[0].shape[0])
+    u, v, r = centre_and_union(spec, ACT_FRAMES, ACT_FPS)[0]
+    fix = cell_mask(grid, grid[0], (u, v), size, in_wh)
+    return vj.pooled(frames, {"obj": (box_mask(grid, grid[0], union, in_wh), "mean"), "fix": (fix, "mean"),
+                              "fix_pf": (fix, "pf"), "fix_flat": (fix, "flat"),
+                              "f0": (cell_mask(grid, grid[0], (u, v), (2 * r, 2 * r), in_wh, frame0_only=True), "mean")})
+
+
 def rc_acts(vj, name, sset, cfg):
     """Fixed-box pools as pilot.recapture, on the V-JEPA token grid: runs/rc/{name}/{scene}_s0, read by its probe."""
     from pilot.generate import rendered_inputs
-    from pilot.recapture import SETS, SIZE_EXP, box_mask, cell_mask, centre_and_union, family, fix_sizes
+    from pilot.recapture import SETS, SIZE_EXP, family, fix_sizes
     from pilot.shard import scene_list
     exp = SETS[sset]
     e, data = cfg["experiments"][exp], Path(cfg["paths"]["data"])
     sizes = fix_sizes(scene_list(cfg, SIZE_EXP[sset]), ACT_FRAMES, ACT_FPS)
-    g = vj.size // vj.patch
-    grid = (ACT_FRAMES // vj.tub, g, g)
     for spec in scene_list(cfg, exp):
         out = Path(cfg["paths"]["runs"]) / "rc" / name / f"{spec['id']}_s0"
         if (out / "meta.json").exists():
             continue
         frames, union = rendered_inputs(spec, data / "renders" / e["scenes"], ACT_FPS, ACT_FRAMES)
-        in_wh = (frames[0].shape[1], frames[0].shape[0])
-        (u, v, r), fam = centre_and_union(spec, ACT_FRAMES, ACT_FPS)[0], family(spec)
-        fix = cell_mask(grid, grid[0], (u, v), sizes[fam], in_wh)
-        acts = vj.pooled(frames, {"obj": (box_mask(grid, grid[0], union, in_wh), "mean"), "fix": (fix, "mean"),
-                                  "fix_pf": (fix, "pf"), "fix_flat": (fix, "flat"),
-                                  "f0": (cell_mask(grid, grid[0], (u, v), (2 * r, 2 * r), in_wh, frame0_only=True), "mean")})
+        fam = family(spec)
+        acts = rc_pools(vj, spec, frames, union, sizes[fam])
         out.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(out / "acts.npz", **acts)
         (out / "meta.json").write_text(json.dumps(dict(model=name, scene=spec["id"], set=sset, seed=0, fps=ACT_FPS,
@@ -202,7 +269,7 @@ def gamma(name, out, runs="runs"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["acts", "surprise", "gamma", "rc"])
+    ap.add_argument("cmd", choices=["acts", "surprise", "gamma", "rc", "rerun"])
     ap.add_argument("--model", required=True, choices=sorted(MODELS))
     ap.add_argument("--exp", help="acts: b1 or b5")
     ap.add_argument("--set", choices=sorted(SURPRISE_SETS) + ["kmain", "kgrav"])
@@ -214,12 +281,15 @@ def main():
     if a.cmd == "gamma":
         print(gamma(a.model, a.out).sort_values("sym_mra").tail(5).to_string(index=False))
         return
-    vj = VJEPA.load(a.model)
+    vj = load(a.model)
     if a.cmd == "acts":
         write_acts(vj, a.model, a.exp, cfg)
         return
     if a.cmd == "rc":
         rc_acts(vj, a.model, a.set, cfg)
+        return
+    if a.cmd == "rerun":
+        rerun_check(vj, a.model, a.set, cfg)
         return
     data = Path(cfg["paths"]["data"])
     a.out.parent.mkdir(parents=True, exist_ok=True)

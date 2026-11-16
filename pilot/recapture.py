@@ -209,7 +209,7 @@ def boot_ci(d, groups, n=10000, seed=0):
 
 def window(model, config="configs/pilot.yaml"):
     """(input frames, fps) of a model's input window; V-JEPA's comes from pilot.vjepa."""
-    if model.startswith("vjepa"):
+    if model.startswith(("vjepa", "videomae")):
         from pilot.vjepa import ACT_FPS, ACT_FRAMES
         return ACT_FRAMES, ACT_FPS
     mcfg = yaml.safe_load(open(config))["models"][model.removesuffix("_rand")]

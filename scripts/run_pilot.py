@@ -619,6 +619,11 @@ def _rc_jobs():
     vj = [m for m in ("vjepa2l", "vjepa2g")]
     jobs["rcvjepa"] = [cmd(f"rc:{m}:{s}", ["-m", "pilot.vjepa", "rc", "--model", m, "--set", s], 900) for m in vj for s in ("kmain", "kgrav")]         + [cmd(f"rccheck:{m}:{s}", ["-m", "pilot.recapture", "check", "--model", m, "--set", s], 300) for m in vj for s in ("kmain", "kgrav")]         + [cmd(f"rcprobe:{m}:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", m, "--set", s, "--target", t], 1200)
            for m in vj for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]         + [cmd("rcblocks", ["-m", "pilot.recapture", "blocks"], 3600)]
+    # VideoMAE-L vs V-JEPA 2 L (user, 2026-11-16): same architecture, frames and fixed box; only the training objective
+    # differs (pixel reconstruction vs latent prediction). No original acts exist for the identification check, so a
+    # determinism rerun of 5 clips replaces it.
+    jobs["rcvideomae"] = [cmd(f"rc:videomael:{s}", ["-m", "pilot.vjepa", "rc", "--model", "videomael", "--set", s], 900) for s in ("kmain", "kgrav")]         + [cmd("rerun:videomael:kmain", ["-m", "pilot.vjepa", "rerun", "--model", "videomael", "--set", "kmain"], 300)]         + [cmd(f"rcprobe:videomael:{s}:{t}", ["-m", "pilot.recapture", "probe", "--model", "videomael", "--set", s, "--target", t], 1200)
+           for s, t in (("kmain", "hspeed"), ("kgrav", "g"))]
     jobs["rc14bfinish"] = [cmd("rcprobe:cosmos14b:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", "kgrav",
                                                              "--target", "g"], 1500),
                            cmd("rcpair14b", ["-m", "pilot.recapture", "pair"], 120),
@@ -629,7 +634,7 @@ def _rc_jobs():
     jobs["rtfix"] = [cmd("rtfix", ["-m", "pilot.redteam_fixes", "all"], 3600)]
     # CVPR review follow-ups (user, 2026-11-15): input probe on measurable clips only, paired know, seed-0 bias
     jobs["reviewcpu"] = [cmd("review", ["-m", "pilot.review_recompute"], 3600)]
-    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rcvjepa"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = LTX_RUNS["reviewcpu"] = []
+    LTX_RUNS["rcprobe"] = LTX_RUNS["rcprobe14b"] = LTX_RUNS["rcinshow"] = LTX_RUNS["rcpair14b"] = LTX_RUNS["rc14bfinish"] = LTX_RUNS["rcvacegravfin"] = LTX_RUNS["rcvjepa"] = LTX_RUNS["rcvideomae"] = LTX_RUNS["rtknowscale"] = LTX_RUNS["gpubench"] = LTX_RUNS["rtfix"] = LTX_RUNS["reviewcpu"] = []
     return jobs
 
 
