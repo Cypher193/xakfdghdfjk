@@ -245,6 +245,19 @@ def accel_window(t, x, x_edge, margin=0.15, rest_m=0.03, min_s=0.75):
     first = int(np.argmax(span < rest_m))
     if span[first] < rest_m and tw[-1] - tw[first] >= 0.5:
         n = first + 1
+    # a stop the span test misses (slow drift of a resting mask): where the fitted velocity reaches zero and the track
+    # stays within rest_m of that point for >= 0.3 s, cut there and refit; a turnaround moves away again and is kept
+    for _ in range(4):
+        if n < 6:
+            break
+        c = np.polyfit(tw[:n], xw[:n], 2)
+        tv = -c[1] / (2 * c[0]) if c[0] else np.inf
+        k = int(np.searchsorted(tw[:n], tv))
+        if not 3 <= k < n - 1 or tw[n - 1] - tv < 0.3:
+            break
+        if np.abs(xw[k:n] - np.polyval(c, tv)).max() >= max(rest_m, 0.05):
+            break
+        n = k
     if n < 6 or t[n - 1] - t[0] < min_s:
         return None
     return slice(0, n)
@@ -332,6 +345,23 @@ def clip_frames(video_path, spec):
     return frames, fps
 
 
+def exit_frame(c, area, width, i0, near=1.2, lost=3.0):
+    """Acceleration family: objects may leave the frame. First frame >= i0 where the object touches the side edge
+    (centre within near x its frame-0 radius of it), or vanishes with its last seen centre within lost x that radius;
+    frames from there on are not scored. len(area) if it never leaves."""
+    r0 = math.sqrt(max(area[0], 1.0) / math.pi)
+    cx = c[:, 0].astype(float).copy()
+    cx[area <= 0] = np.nan
+    last = cx.copy()
+    for i in range(1, len(last)):                          # forward-fill the last seen centre
+        if np.isnan(last[i]):
+            last[i] = last[i - 1]
+    d_now, d_last = np.minimum(cx, width - cx), np.minimum(last, width - last)
+    hit = (d_now < near * r0) | (np.isnan(cx) & (d_last < lost * r0))
+    hit[:i0] = False
+    return int(np.argmax(hit)) if hit.any() else len(area)
+
+
 def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker="sam2"):
     """Track a clip of a known scene. Returns readout dict plus measurability, SAM2 mask faults and pixel tracks.
     The metre scale comes from the SAM2 masks of the input frames with either tracker."""
@@ -346,7 +376,8 @@ def track_clip(video_path, spec, boxes=None, t_start=0.0, cond_frames=1, tracker
         s = px_per_m(m[:cond_frames], o["size_m"] * (math.cos(th) + math.sin(th)))
         xs.append((c[:, 0] - cam["cx"]) / s)
         zs.append(-(c[:, 1] - cam["cy"]) / s)
-        ok &= measurable(area, i0)
+        n = exit_frame(c, area, cam["width"], i0) if spec["family"] == "accel" else len(area)
+        ok &= measurable(area[:n], i0) and (n - i0) / fps >= 0.75
     res = dict(measurable=ok, fps=fps, n_frames=len(frames), tracker=tracker,
                faults=[mask_faults(frames, m, i0) for m in masks])
     if ok:

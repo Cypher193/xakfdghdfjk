@@ -183,6 +183,9 @@ elif os.environ.get("LTX_JOB"):
     if re.fullmatch(r"[a-z0-9_]+acc\d+of\d+", j):   # acceleration shard: also its clips' rc meta (skip on a relaunch)
         _m = MODEL_JOBS[j][0]["model"]
         PATTERNS += [f"runs/rc/{_m}/{i}_s0/meta.json" for i in MODEL_JOBS[j][0]["ids"]]
+    if j == "accp0":                      # P0 rerun on the full acceleration renders with the exit-aware scorer
+        PATTERNS = ["data/scenes/kacc/**", "data/renders/kaccfull/*"] + mine
+        PUSH_PATTERNS = mine
     if j == "accfin":                     # every model's kacc rc acts + CoTracker3 scores in; probes and summary out
         from run_pilot import ACC_PODS
         PATTERNS = ["data/scenes/kacc/**"] + mine + \

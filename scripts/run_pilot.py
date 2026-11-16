@@ -662,12 +662,14 @@ for _m, (_n, _ps, _rc) in ACC_PODS.items():
                                          f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 20 * len(_ids))
              for tr in ("sam2", "cotracker3")]
         NARROW_PULL.add(_name)
+ACC_P0 = [cmd(f"p0:kacc:{tr}", ["-m", "pilot.track", "validate", "data/renders/kaccfull", "--scenes", "data/scenes/kacc",
+                                 "--tracker", tr, "--out", f"results/p0_kacc_{tr}_ltx_accp0.csv"], 13 * 30) for tr in ("sam2", "cotracker3")]
 ACC_FIN = [cmd(f"rcprobe:{m}:kacc:ax", ["-m", "pilot.recapture", "probe", "--model", m, "--set", "kacc", "--target", "ax"], 1500)
            for m in ACC_PODS] + [cmd("accsummary", ["-m", "pilot.accel", "--models", *ACC_PODS], 900)]
 RC_JOBS = _rc_jobs()
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
-    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS | {"accfin": ACC_FIN, "accrender": ACC_RENDER}
-LTX_RUNS["accfin"] = LTX_RUNS["accrender"] = []
+    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS | {"accfin": ACC_FIN, "accrender": ACC_RENDER, "accp0": ACC_P0}
+LTX_RUNS["accfin"] = LTX_RUNS["accrender"] = LTX_RUNS["accp0"] = []
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 
