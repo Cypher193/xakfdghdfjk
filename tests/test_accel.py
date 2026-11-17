@@ -1,5 +1,7 @@
 """CPU check of the acceleration family: independent draws, and the readout recovers |ax| and its sign from exact
 tracks with 2 px of noise at 16 and 24 fps.    python -m tests.test_accel"""
+import sys
+from pathlib import Path
 import numpy as np
 import yaml
 
@@ -34,3 +36,12 @@ e = exit_frame(c, area, w, 5)
 assert 0 < e < n and cx[e] > w - 1.2 * np.sqrt(700 / np.pi) - 15 and measurable(area[:e], 5) and not measurable(area, 5), e
 assert exit_frame(np.c_[np.full(n, 400.0), np.full(n, 300.0)], np.full(n, 700.0), w, 5) == n
 print("exit_frame checks passed")
+
+
+# main() skips a step whose `out` already holds its clips; that check reads clips, so every step with `out` needs it
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import run_pilot  # noqa: E402
+
+bad = [(j, s["name"]) for j, st in run_pilot.LTX_JOBS.items() for s in st if s.get("out") and "clips" not in s]
+assert bad == [], bad
+print("step skip checks passed")

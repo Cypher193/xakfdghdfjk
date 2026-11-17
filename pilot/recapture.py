@@ -122,6 +122,7 @@ def gen(a):
     all_specs = scene_list(cfg, exp)
     sizes = fix_sizes(scene_list(cfg, SIZE_EXP[a.set]), mcfg["cond_frames"], mcfg["fps"])
     specs = shard(all_specs[: a.limit or None], a.shard) if a.shard else all_specs[: a.limit or None]
+    specs = [x for x in specs if x["id"] in a.ids] if a.ids else specs
     g = Generator(a.model, mcfg, cfg)
     if a.random_init:
         print("random init:", randomise(g.pipe.transformer), "modules reset", flush=True)
@@ -348,7 +349,7 @@ def inshow_cmd(a):
 
 
 PAIR = (("kmain", "hspeed"), ("kgrav", "g"))
-BLOCK_MODELS = ("ltx2b", "cosmos2b", "cosmos14b", "cosmos3_nano", "vjepa2l", "vjepa2g")   # VACE: kgrav has 10 scenes
+BLOCK_MODELS = ("ltx2b", "cosmos2b", "cosmos14b", "cosmos3_nano", "vace13", "vjepa2l", "vjepa2g")   # VACE: all 30 kgrav bases since 2026-11-14
 
 
 def blocks_cmd(a):
@@ -423,6 +424,7 @@ def main():
     ap.add_argument("--target", default="hspeed")
     ap.add_argument("--shard")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--ids", nargs="*", help="gen: only these scene ids (after --limit / --shard)")
     ap.add_argument("--random-init", action="store_true")
     ap.add_argument("--min-ident", type=float, default=0.95)
     ap.add_argument("--family", help="summary: Holm over this model's tests only (models in SEPARATE_FAMILIES)")

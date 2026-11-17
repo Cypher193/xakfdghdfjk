@@ -14,6 +14,7 @@
 Runs even if verification is incomplete at --hard-at: the deadline wins, the check file says what is missing.
 Screen: scores only the tier's models into its own table, no probes, log and check files suffixed _screen_{tier}.
 """
+import concurrent.futures as cf
 import argparse
 import fnmatch
 import json
@@ -180,7 +181,7 @@ def main():
     while left(hard) > 120:
         run([PY, "scripts/sync.py", "push"], left(hard) - 120, "upload")
         try:
-            check = verify()
+            check = cf.ThreadPoolExecutor(1).submit(verify).result(timeout=600)   # a hung HF call idled ltx2bacc 5.4 h
         except Exception as e:                                # network hiccup: retry while time remains
             check = dict(error=f"{type(e).__name__}: {e}")
         log(f"verify: {check}")

@@ -657,6 +657,7 @@ for _m, (_n, _ps, _rc) in ACC_PODS.items():
         _name, _ids = f"{_m}acc{_k}of{_n}", KACC_IDS[_k - 1::_n]
         MODEL_JOBS[_name] = [gen(_m, "bacc", None, [0], shard=f"{_k}/{_n}", ids=_ids) | dict(per_s=_ps),
                              dict(name=f"rc:{_m}:kacc", kind="cmd", model=_m, out=[f"runs/rc/{_m}"], est_s=LOAD_S + len(_ids) * _rc,
+                                  ids=_ids, seeds=[0], clips=len(_ids),   # main()'s done-earlier check reads all three
                                   cmd=[PY, "-m", "pilot.recapture", "gen", "--model", _m, "--set", "kacc", "--shard", f"{_k}/{_n}"])] + \
             [cmd(f"score:{_name}:{tr}", ["-m", "pilot.score", "--models", _m, "--tracker", tr, "--table",
                                          f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 20 * len(_ids))
@@ -666,10 +667,46 @@ ACC_P0 = [cmd(f"p0:kacc:{tr}", ["-m", "pilot.track", "validate", "data/renders/k
                                  "--tracker", tr, "--out", f"results/p0_kacc_{tr}_ltx_accp0.csv"], 13 * 30) for tr in ("sam2", "cotracker3")]
 ACC_FIN = [cmd(f"rcprobe:{m}:kacc:ax", ["-m", "pilot.recapture", "probe", "--model", m, "--set", "kacc", "--target", "ax"], 1500)
            for m in ACC_PODS] + [cmd("accsummary", ["-m", "pilot.accel", "--models", *ACC_PODS], 900)]
+# Cosmos-14B on 40 kacc scenes (10 per scenario; user, 2026-11-17, vast, 48 GB cards): shards 1-10 of 25, 4 clips each; generate,
+# re-capture the same ids, score. `accfin14` (CPU) then probes 14B and reruns the summary over all five generators.
+KACC14_IDS = sorted(f"kacc_{s}_{i:02d}" for s in ("br", "rd", "ru", "sd") for i in range(10))
+ACC14_N = 10
+for _k in range(1, ACC14_N + 1):
+    _name, _ids = f"cosmos14bacc{_k}of{ACC14_N}", KACC_IDS[_k - 1::25]   # shard k/25 of all 100 = index k-1 of each scenario
+    MODEL_JOBS[_name] = [gen("cosmos14b", "bacc", None, [0], shard=f"{_k}/25", ids=_ids) | dict(per_s=1500),
+                         dict(name="rc:cosmos14b:kacc", kind="cmd", model="cosmos14b", out=["runs/rc/cosmos14b"],
+                              est_s=LOAD_S + len(_ids) * 335, ids=_ids, seeds=[0], clips=len(_ids),
+                              cmd=[PY, "-m", "pilot.recapture", "gen", "--model", "cosmos14b", "--set", "kacc", "--ids", *_ids])] +         [cmd(f"score:{_name}:{tr}", ["-m", "pilot.score", "--models", "cosmos14b", "--tracker", tr, "--table",
+                                     f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 20 * len(_ids))
+         for tr in ("sam2", "cotracker3")]
+    NARROW_PULL.add(_name)
+ACC_FIN14 = [cmd("rcprobe:cosmos14b:kacc:ax", ["-m", "pilot.recapture", "probe", "--model", "cosmos14b", "--set", "kacc",
+                                               "--target", "ax"], 1500),
+             cmd("accsummary", ["-m", "pilot.accel", "--models", *ACC_PODS, "cosmos14b"], 900)]
+# VACE gravity, all 30 kgrav bases (user, 2026-11-14; moved to vast 2026-11-17, 6 shards): B5 seed 0 (the 10 old bases are
+# skipped through their pulled meta.json), the fixed-box re-capture of the same clips, both trackers. vacegfin (CPU):
+# CoTracker3 nested readout, rc check and probe, input vs show, bias / calib with VACE included (per-block slopes left out).
+VACEG_N = 6
+for _k in range(1, VACEG_N + 1):
+    _name, _ids = f"vaceg{_k}of{VACEG_N}", kgrav_ids(_k, VACEG_N, 30)
+    MODEL_JOBS[_name] = [gen("vace13", "b5", None, [0], shard=f"{_k}/{VACEG_N}", ids=_ids) | dict(per_s=450),
+                         dict(name="rc:vace13:kgrav", kind="cmd", model="vace13", out=["runs/rc/vace13"],
+                              est_s=LOAD_S + len(_ids) * 250, ids=_ids, seeds=[0], clips=len(_ids),
+                              cmd=[PY, "-m", "pilot.recapture", "gen", "--model", "vace13", "--set", "kgrav", "--ids", *_ids])] +         [cmd(f"score:{_name}:{tr}", ["-m", "pilot.score", "--models", "vace13", "--tracker", tr, "--table",
+                                     f"results/show{'_v2' * (tr != 'sam2')}_ltx_{_name}.csv"], 20 * len(_ids))
+         for tr in ("sam2", "cotracker3")]
+    NARROW_PULL.add(_name)
+VACEG_FIN = [cmd("nested:vace13", ["-m", "pilot.analysis", "nested", "--v2", "--no-fetch", "--model", "vace13"], 3600),
+             cmd("rccheck:vace13:kgrav", ["-m", "pilot.recapture", "check", "--model", "vace13", "--set", "kgrav"], 300),
+             cmd("rcprobe:vace13:kgrav:g", ["-m", "pilot.recapture", "probe", "--model", "vace13", "--set", "kgrav",
+                                            "--target", "g"], 900),
+             cmd("rcinshow", ["-m", "pilot.recapture", "inshow"], 900),
+             cmd("rtbias", ["-m", "pilot.redteam_fixes", "bias"], 300),
+             cmd("rtcalib", ["-m", "pilot.redteam_fixes", "calib"], 300)]
 RC_JOBS = _rc_jobs()
 LTX_JOBS = _ltx_jobs() | _shard_jobs() | _c9_jobs() | MODEL_JOBS | STEER_JOBS | {"stats2": STATS2} | RESCORE_JOBS | RENDER3_JOBS \
-    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS | {"accfin": ACC_FIN, "accrender": ACC_RENDER, "accp0": ACC_P0}
-LTX_RUNS["accfin"] = LTX_RUNS["accrender"] = LTX_RUNS["accp0"] = []
+    | {"stats2v2": STATS2V2} | C2_JOBS | RC_JOBS | {"accfin": ACC_FIN, "accrender": ACC_RENDER, "accp0": ACC_P0, "accfin14": ACC_FIN14, "vacegfin": VACEG_FIN}
+LTX_RUNS["accfin"] = LTX_RUNS["accrender"] = LTX_RUNS["accp0"] = LTX_RUNS["accfin14"] = LTX_RUNS["vacegfin"] = []
 LTX_RUNS |= {j: list(dict.fromkeys(o for s in steps for o in s.get("out", [])))
              for j, steps in (MODEL_JOBS | STEER_JOBS).items()}
 

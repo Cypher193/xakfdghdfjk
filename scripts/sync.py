@@ -186,11 +186,13 @@ elif os.environ.get("LTX_JOB"):
     if j == "accp0":                      # P0 rerun on the full acceleration renders with the exit-aware scorer
         PATTERNS = ["data/scenes/kacc/**", "data/renders/kaccfull/*"] + mine
         PUSH_PATTERNS = mine
-    if j == "accfin":                     # every model's kacc rc acts + CoTracker3 scores in; probes and summary out
-        from run_pilot import ACC_PODS
+    if j in ("accfin", "accfin14"):       # every model's kacc rc acts + CoTracker3 scores in; probes and summary out
+        from run_pilot import ACC_PODS    # accfin14: 14B too, plus accfin's know tables for the five-model summary
+        M = [*ACC_PODS] + ["cosmos14b"] * (j == "accfin14")
         PATTERNS = ["data/scenes/kacc/**"] + mine + \
-            [f"runs/rc/{m}/kacc_*_s0/{f}" for m in ACC_PODS for f in ("acts.npz", "meta.json")] + \
-            [f"runs/bacc/{m}/kacc_*_s0/score_v2.json" for m in ACC_PODS]
+            [f"runs/rc/{m}/kacc_*_s0/{f}" for m in M for f in ("acts.npz", "meta.json")] + \
+            [f"runs/bacc/{m}/kacc_*_s0/score_v2.json" for m in M] + \
+            ["results/rc_*_kacc_ax.csv", "results/rcclips_*_kacc_ax.csv"] * (j == "accfin14")
         PUSH_PATTERNS = mine + ["results/rc_*_kacc_ax.csv", "results/rcclips_*_kacc_ax.csv", "results/acc_summary.csv"]
     if j == "rcvideomae":                 # input renders in; VideoMAE rc acts, probes and the rerun check out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine +             [f"data/renders/{s}/*_input*.mp4" for s in ("kmain", "kgrav")]
@@ -208,6 +210,17 @@ elif os.environ.get("LTX_JOB"):
     if j == "rcpair14b":                  # both Cosmos rc runs in; per-clip tables, re-run probes and the pair table out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**", "runs/rc/cosmos2b/**", "runs/rc/cosmos14b/**"] + mine
         PUSH_PATTERNS = mine + ["results/rcclips_cosmos*", "results/rc_pair14b.csv"]
+    if re.fullmatch(r"vaceg\d+of\d+", j):   # VACE gravity shard: also the old clips' rc meta (skip) and CoTracker3 scores
+        ids = MODEL_JOBS[j][0]["ids"]
+        PATTERNS += [f"runs/rc/vace13/{i}_s0/meta.json" for i in ids] + [f"runs/b5/vace13/{i}_s0/score_v2.json" for i in ids]
+    if j == "vacegfin":                   # VACE B1 + B5 clips, every model's rc acts and clip tables in; VACE results out
+        M5 = ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b")
+        PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + ["results/p6_vace13*", "results/c3_*_v2_nested_clips.csv"] + \
+            [f"runs/{e}/vace13/*/{f}" for e in ("b1", "b5") for f in ("acts.npz", "meta.json", "score.json", "score_v2.json")] + \
+            [f"runs/rc/{m}/*_s0/{f}" for m in M5 + ("vjepa2l", "vjepa2g") for f in ("acts.npz", "meta.json")]
+        PUSH_PATTERNS = mine + ["results/c3_vace13_v2_*", "results/rc_vace13_kgrav_g.csv", "results/rcclips_vace13_kgrav_g.csv",
+                                "results/rc_check_vace13_kgrav.csv", "results/rc_inshow.csv", "results/rt_bias.csv",
+                                "results/rt_calib*.csv"]
     if j == "reviewcpu":                  # every generator's rc acts + the tracker clip tables in; two review tables out
         PATTERNS = ["data/scenes/kmain/**", "data/scenes/kgrav/**"] + mine + ["results/c3_*_v2_nested_clips.csv"] + \
             [f"runs/rc/{m}/*_s0/{f}" for m in ("ltx2b", "cosmos2b", "vace13", "cosmos3_nano", "cosmos14b") for f in ("acts.npz", "meta.json")]
