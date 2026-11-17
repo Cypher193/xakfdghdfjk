@@ -33,7 +33,8 @@ assert not run(110, draw=120)["ok"], "low power draw under load must fail"
 os.environ["GPU_CHECK_IGNORE_POWER"] = "1"
 r = run(110, clock=900, draw=120)
 assert r["ok"] and len(r["power_notes"]) == 2, "GPU_CHECK_IGNORE_POWER=1 notes low draw and clock instead of failing"
-assert not run(110, clock=900, draw=120, slowdown="Active")["ok"], "a slowdown still fails with power ignored"
+assert run(110, clock=900, draw=120, slowdown="Active")["ok"], "power ignored: TFLOPS alone decide, a slowdown is noted"
+assert not run(40, slowdown="Active")["ok"], "power ignored: low TFLOPS still fail"
 del os.environ["GPU_CHECK_IGNORE_POWER"]
 assert not run(110, slowdown="Active")["ok"], "thermal or hardware slowdown must fail"
 assert not run(110, ram=64e9, min_ram=80)["ok"], "too little host RAM must fail"

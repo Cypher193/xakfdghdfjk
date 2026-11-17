@@ -112,8 +112,9 @@ def check(seconds, min_ram_gb):
         r["power_notes"] = power
     else:
         fails += power
-    if flags:
-        fails.append(f"slowdown reported: {', '.join(flags)}")
+    if flags:                             # ignore-power: TFLOPS alone decide (user, 2026-11-17), so slowdown is a note
+        (r.setdefault("power_notes", []) if os.environ.get("GPU_CHECK_IGNORE_POWER") == "1" else fails).append(
+            f"slowdown reported: {', '.join(flags)}")
     if ram_gb < min_ram_gb:
         fails.append(f"host RAM {ram_gb:.0f} GB < {min_ram_gb}")
     r["fails"], r["ok"] = fails, not fails
